@@ -145,3 +145,23 @@ async def run_sequential_agents(state: AgentState):
     state.final_report = f"### 💼 AuraWealth Executive Advisory Report\n\n* **Analysis Context:** {state.risk_assessment}\n\n* **Recommendation:** Proceed with tax-optimized rebalancing. Portfolio volatility matched cleanly to regional benchmarks."
     
     return state
+
+@app.get("/api/v1/search/reranked")
+async def reranked_search(query: str, category: str = None, year: int = None):
+    # 1. Fetch raw unranked results from your existing hybrid pool logic
+    raw_results = _execute_keyword_filter(query, category, year) + _execute_semantic_filter(query)
+    
+    # Deduplicate via dictionary
+    combined = {c["id"]: c for c in raw_results}
+    chunks = list(combined.values())
+    
+    # 2. Apply Custom Recency-Weighting Algorithm (+2 Points)
+    # 2026 documents get a massive priority boost over older 2024 metrics
+    for chunk in chunks:
+        base_score = 1.0
+        recency_multiplier = 1.5 if chunk["recency_year"] == 2026 else 1.0
+        chunk["rerank_score"] = round(base_score * recency_multiplier, 2)
+        
+    # Sort array completely based on the new custom score matrix
+    sorted_chunks = sorted(chunks, key=lambda x: x["rerank_score"], reverse=True)
+    return {"results": sorted_chunks[:5]}

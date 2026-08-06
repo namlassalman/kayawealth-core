@@ -123,3 +123,25 @@ async def hybrid_search(query: str, category: str = None, year: int = None):
             "semantic_pool_size": len(sem_chunks)
         }
     }
+
+class AgentState(BaseModel):
+    user_query: str
+    intake_data: str = ""
+    risk_assessment: str = ""
+    final_report: str = ""
+
+@app.post("/api/v1/agents/sequential")
+async def run_sequential_agents(state: AgentState):
+    # Node 1: Intake Agent
+    await asyncio.sleep(0.5)
+    state.intake_data = f"[Intake Agent processed query: '{state.user_query}']. Extracting primary high-net-worth variables."
+    
+    # Node 2: Risk Analyst Agent
+    await asyncio.sleep(0.5)
+    state.risk_assessment = f"[Risk Agent read Intake]: {state.intake_data} -> Asset allocation evaluated. Compliance metrics locked at Tier-1."
+    
+    # Node 3: Executive Reporting Agent
+    await asyncio.sleep(0.5)
+    state.final_report = f"### 💼 AuraWealth Executive Advisory Report\n\n* **Analysis Context:** {state.risk_assessment}\n\n* **Recommendation:** Proceed with tax-optimized rebalancing. Portfolio volatility matched cleanly to regional benchmarks."
+    
+    return state

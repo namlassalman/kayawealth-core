@@ -45,7 +45,7 @@ graph TD
     User[📱 Client/Advisor UI: Streamlit] -->|1. Async HTTP Request| API[⚡ API Gateway: FastAPI]
     
     %% Core Backend Orchestration
-    subgraph Core Engine "Core Backend Engine (Asyncio Loop)"
+    subgraph CoreEngine["Core Backend Engine (Asyncio Loop)"]
         API -->|2. Multi-turn Session State| StateManager[🧠 Context Dialogue State Manager]
         StateManager -->|3. Route Query| Router{🤖 Semantic Model Router}
     end
@@ -55,7 +55,7 @@ graph TD
     Router -->|Complex Task: Multi-Agent| Orchestrator[👑 LangGraph Hierarchical Orchestrator]
 
     %% Multi-Agent Processing Framework
-    subgraph Agentic Reasoning Cluster (LangGraph State Machine)
+    subgraph AgenticCluster["Agentic Reasoning Cluster (LangGraph State Machine)"]
         Orchestrator --> Agent1[📋 Portfolio Ingestion Agent]
         Orchestrator --> Agent2[⚖️ Risk Analysis Agent]
         Orchestrator --> Agent3[✍️ Executive Reporting Agent]
@@ -64,10 +64,11 @@ graph TD
     end
 
     %% External Infrastructure & Security
-    subgraph Data & Optimization Layer
+    subgraph DataLayer["Data & Optimization Layer"]
         FlashModel & Agent3 -->|4. Structural Output| Guardrails[🛡️ Security Guardrails: Injection & Exfiltration Filters]
         Guardrails -->|5. Verify Data Boundaries| API
         Agent2 -.->|Read/Write Cache| RedisCache[(🚀 Redis Performance Cache & MQ)]
     end
 ```
+
 

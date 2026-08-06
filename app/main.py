@@ -190,3 +190,26 @@ async def semantic_router(user_query: str):
             "model": "Gemini-Pro-Orchestrator",
             "response": "Complex portfolio/RAG request detected. Diverting to multi-agent cluster."
         }
+
+# High-performance local memory cache store
+search_cache: dict[str, dict] = {}
+
+@app.get("/api/v1/search/cached")
+async def cached_search(query: str):
+    current_time = time.time()
+    
+    # 1. Check if query exists in cache and has not expired (10-second TTL)
+    if query in search_cache:
+        cache_entry = search_cache[query]
+        if current_time - cache_entry["timestamp"] < 10.0:
+            return {"results": cache_entry["data"], "cache_hit": True, "ttl_remaining": round(10.0 - (current_time - cache_entry["timestamp"]), 2)}
+            
+    # 2. Cache Miss: Calculate fresh data results natively
+    fresh_data = _execute_keyword_filter(query)
+    
+    # 3. Save to memory cache with current epoch timestamp
+    search_cache[query] = {
+        "timestamp": current_time,
+        "data": fresh_data[:2]
+    }
+    return {"results": fresh_data[:2], "cache_hit": False, "ttl_remaining": 10.0}

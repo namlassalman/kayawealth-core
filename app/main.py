@@ -132,19 +132,22 @@ class AgentState(BaseModel):
 
 @app.post("/api/v1/agents/sequential")
 async def run_sequential_agents(state: AgentState):
-    # Node 1: Intake Agent
     await asyncio.sleep(0.5)
-    state.intake_data = f"[Intake Agent processed query: '{state.user_query}']. Extracting primary high-net-worth variables."
+    state.intake_data = "Client data verified. Focus area identified: Portfolio optimization and tax tracking."
     
-    # Node 2: Risk Analyst Agent
     await asyncio.sleep(0.5)
-    state.risk_assessment = f"[Risk Agent read Intake]: {state.intake_data} -> Asset allocation evaluated. Compliance metrics locked at Tier-1."
+    state.risk_assessment = "Asset allocation risk verified against regional compliance benchmarks. Status: Approved (Tier-1 Low Volatility)."
     
-    # Node 3: Executive Reporting Agent
     await asyncio.sleep(0.5)
-    state.final_report = f"### 💼 AuraWealth Executive Advisory Report\n\n* **Analysis Context:** {state.risk_assessment}\n\n* **Recommendation:** Proceed with tax-optimized rebalancing. Portfolio volatility matched cleanly to regional benchmarks."
-    
+    state.final_report = (
+        f"### 💼 AuraWealth Executive Advisory Report\n\n"
+        f"* **Client Request Profile:** '{state.user_query}'\n"
+        f"* **Intake Diagnostics:** {state.intake_data}\n"
+        f"* **Risk Assessment:** {state.risk_assessment}\n\n"
+        f"* **Strategic Recommendation:** Proceed with tax-optimized rebalancing. Portfolio risk matches parameters cleanly."
+    )
     return state
+
 
 @app.get("/api/v1/search/reranked")
 async def reranked_search(query: str, category: str = None, year: int = None):

@@ -45,7 +45,7 @@ graph TD
     User[📱 Client/Advisor UI: Streamlit] -->|1. Async HTTP Request| API[⚡ API Gateway: FastAPI]
     
     %% Core Backend Orchestration
-    subgraph Core Backend Engine (Asyncio Loop)
+    subgraph Core Engine "Core Backend Engine (Asyncio Loop)"
         API -->|2. Multi-turn Session State| StateManager[🧠 Context Dialogue State Manager]
         StateManager -->|3. Route Query| Router{🤖 Semantic Model Router}
     end
@@ -70,3 +70,4 @@ graph TD
         Agent2 -.->|Read/Write Cache| RedisCache[(🚀 Redis Performance Cache & MQ)]
     end
 ```
+

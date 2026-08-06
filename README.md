@@ -144,3 +144,18 @@ uvicorn app.main:app --reload
 # Run the frontend portal
 streamlit run app/frontend.py
 ```
+
+---
+
+## 🛡️ Strategic Panel Defense Matrix
+
+| Issue ID | Feature | Engineering Defense (For Tech Panel) | Business ROI (For Product Panel) |
+| :--- | :--- | :--- | :--- |
+| **#21** | Async Core | Native `BackgroundTasks` run requests directly on the ASGI event loop, maximizing I/O throughput. | Keeps user experience fast; immediate response codes eliminate frontend screen freezing. |
+| **#19** | Chat UI | `st.session_state` locks memory context directly inside the active session against top-to-bottom UI resets. | Replaces clunky forms with an instant, human-like chat interface to increase user adoption. |
+| **#20** | System Diagram | Mermaid map structurally mirrors backend API routes, model switches, and agent graphs. | Provides absolute clarity on asset security and operational data pathways for risk teams. |
+| **#22** | 1,000-Chunk Ingestion | Local memory ingestion avoids network database overhead for rapid initial feature deployment. | Simulates the full corporate advisory library on Day 1 with zero external data hosting costs. |
+| **#3** | Metadata Filters | Intercepts parameters at route level to restrict iterations strictly to targeted database pools. | Allows advisors to filter vast sets of compliance data down to specific tax or investment buckets. |
+| **#4** | Hybrid Search | Combines token keyword scanning and conceptual loops, resolving duplicates via unique key mapping. | Balances high-precision legal keyword searches with deep contextual meaning for clients. |
+| **#1** | 3-Agent Flow | LangGraph state transitions enforce discrete text hand-offs between specialized, isolated LLM nodes. | Emulates a real wealth team: an intake desk, a risk analyst, and an executive writer. |
+| **#5** | Recency Reranker | Modifies result vectors based on epoch timestamps, promoting fresher compliance updates. | Prevents the AI from giving clients outdated market or tax advice from prior fiscal years. |

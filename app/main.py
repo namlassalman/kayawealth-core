@@ -5,6 +5,7 @@ import json
 import time  # Properly anchored at the top of the file
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
+from app.services.worker import execute_distributed_simulation
 
 # --- ENVIRONMENT STATE CONFIGURATION ---
 IS_PRODUCTION = False  # Toggle to True for presentation mode or deployment configs
@@ -194,6 +195,28 @@ async def semantic_router(user_query: str):
             "response": "Complex portfolio/RAG request detected. Diverting to multi-agent cluster."
         }
 
+@app.get("/api/v1/route/llm")
+async def intelligent_llm_router(user_query: str):
+    if not user_query:
+        return {"selected_tier": "LIGHTWEIGHT_COMMUNICATION_TIER", "model_identifier": "Gemini-1.5-Flash-Fast", "compute_cost_per_1k_tokens": "$0.000075"}
+        
+    complex_keywords = ["portfolio", "rebalance", "tax", "risk", "audit", "optimization"]
+    needs_heavy_reasoning = any(word in user_query.lower() for word in complex_keywords)
+    
+    if needs_heavy_reasoning:
+        return {
+            "selected_tier": "PREMIUM_REASONING_TIER",
+            "model_identifier": "Gemini-1.5-Pro-Enterprise",
+            "compute_cost_per_1k_tokens": "$0.0070"
+        }
+    else:
+        return {
+            "selected_tier": "LIGHTWEIGHT_COMMUNICATION_TIER",
+            "model_identifier": "Gemini-1.5-Flash-Fast",
+            "compute_cost_per_1k_tokens": "$0.000075"
+        }
+
+
 # High-performance local memory cache store
 search_cache: dict[str, dict] = {}
 
@@ -229,3 +252,22 @@ async def cached_search(query: str):
         "active_environment": "production" if IS_PRODUCTION else "development",
         "ttl_remaining_seconds": TTL_LIMIT
     }
+
+# In-memory global task cluster storage
+queue_state_store: dict[str, dict] = {}
+
+@app.post("/api/v1/queue/job", status_code=202)
+async def push_to_message_queue(payload: dict, background_tasks: BackgroundTasks):
+    job_id = f"job_{uuid.uuid4().hex[:8]}"
+    queue_state_store[job_id] = {"status": "queued", "progress": 0}
+    
+    # Offload execution asynchronously to our decoupled compute worker service
+    background_tasks.add_task(execute_distributed_simulation, job_id, payload, queue_state_store)
+    
+    return {"job_id": job_id, "status": "queued", "message": "Dispatched to background message queue queue."}
+
+@app.get("/api/v1/queue/job/{job_id}")
+async def get_queue_job_status(job_id: str):
+    if job_id not in queue_state_store:
+        raise HTTPException(status_code=404, detail="Job token not found in cluster queue")
+    return queue_state_store[job_id]

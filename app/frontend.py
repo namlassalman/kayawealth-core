@@ -67,43 +67,52 @@ if user_input := st.chat_input("Ask AuraWealth..."):
         st.chat_message("assistant").write(reply_text)
         st.session_state.messages.append({"role": "assistant", "content": reply_text})
 
-# --- UPGRADED TESTING SANDBOX FOR ISSUES #3 & #22 ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔍 Metadata-Enhanced Search")
+# --- UPGRADED TESTING SANDBOX FOR ISSUE #4 (HYBRID SEARCH) ---
 
-# Interactive dropdown selectors for metadata attributes
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 Metadata-Enhanced Hybrid Search")
+
 category_filter = st.sidebar.selectbox(
     "Filter by Category:", 
-    ["", "tax_planning", "risk_management", "portfolio_rebalancing", "macro_economics"]
+    ["", "tax_planning", "risk_management", "portfolio_rebalancing", "macro_economics"],
+    key="hybrid_cat"
 )
-year_filter = st.sidebar.selectbox("Filter by Recency Year:", [None, 2024, 2026])
+year_filter = st.sidebar.selectbox("Filter by Recency Year:", [None, 2024, 2026], key="hybrid_year")
 
-search_query = st.sidebar.text_input("Enter search keyword:")
+search_query = st.sidebar.text_input("Enter hybrid search query:", key="hybrid_query")
+
+async def execute_hybrid_query(query: str, cat: str, yr: int):
+    params = {"query": query}
+    if cat:
+        params["category"] = cat
+    if yr:
+        params["year"] = yr
+        
+    # Execute safely inside an isolated asynchronous HTTP tunnel
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"{BACKEND_URL}/api/v1/search/hybrid", params=params, timeout=10.0)
+        return response
 
 if search_query:
     try:
-        with st.sidebar.spinner("Querying knowledge base..."):
-            # Build payload with metadata parameters
-            params = {"query": search_query}
-            if category_filter:
-                params["category"] = category_filter
-            if year_filter:
-                params["year"] = year_filter
-                
-            response = httpx.get(f"{BACKEND_URL}/api/v1/search/keyword", params=params)
+        with st.spinner("Querying Hybrid Search Matrix..."):
+            # Resolve the async request smoothly within Streamlit's event thread
+            response = asyncio.run(execute_hybrid_query(search_query, category_filter, year_filter))
             
             if response.status_code == 200:
                 data = response.json()
-                st.sidebar.success(f"Found {data['total_matches_found']} filtered matches!")
+                st.sidebar.success(f"Found {data['total_results']} hybrid results!")
+                
+                pool = data["source_breakdown"]
+                st.sidebar.caption(f"📊 Pools: Keyword [{pool['keyword_pool_size']}] | Vector [{pool['semantic_pool_size']}]")
                 
                 if data["results"]:
-                    top_match = data["results"][0]
-                    with st.sidebar.expander(f"Top Match: {top_match['id']}"):
-                        st.write(f"**Doc:** {top_match['document_title']}")
-                        st.write(f"**Metadata Tags:** [Category: `{top_match['category']}` | Year: `{top_match['recency_year']}`]")
-                        st.caption(top_match["text"])
+                    for idx, match in enumerate(data["results"][:3]):
+                        with st.sidebar.expander(f"Match {idx+1}: {match['id']}"):
+                            st.write(f"**Doc:** {match['document_title']}")
+                            st.write(f"**Metadata:** [Category: `{match['category']}` | Year: `{match['recency_year']}`]")
+                            st.caption(match["text"])
             else:
-                st.sidebar.error("Backend search failed.")
+                st.sidebar.error(f"Backend search failed with status: {response.status_code}")
     except Exception as e:
-        st.sidebar.error("Could not connect to backend.")
-
+        st.sidebar.error(f"Could not connect to backend: {str(e)}")

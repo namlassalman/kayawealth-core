@@ -168,3 +168,25 @@ async def reranked_search(query: str, category: str = None, year: int = None):
     # Sort array completely based on the new custom score matrix
     sorted_chunks = sorted(chunks, key=lambda x: x["rerank_score"], reverse=True)
     return {"results": sorted_chunks[:5]}
+
+@app.get("/api/v1/route")
+async def semantic_router(user_query: str):
+    if not user_query:
+        return {"route": "fallback", "model": "static"}
+        
+    # FinOps Optimization: Triage intent complexity instantly
+    greetings = ["hi", "hello", "hey", "test", "status"]
+    is_simple = any(word in user_query.lower().split() for word in greetings)
+    
+    if is_simple:
+        return {
+            "route": "lightweight_tier",
+            "model": "Gemini-Flash-Mock",
+            "response": f"Hello from AuraWealth Core! I am online and optimized. System status: Healthy."
+        }
+    else:
+        return {
+            "route": "premium_tier",
+            "model": "Gemini-Pro-Orchestrator",
+            "response": "Complex portfolio/RAG request detected. Diverting to multi-agent cluster."
+        }

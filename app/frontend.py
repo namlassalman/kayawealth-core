@@ -62,11 +62,33 @@ if user_input := st.chat_input("Ask AuraWealth..."):
                 st.sidebar.error(f"Agent link failed: {str(e)}")
 
         
-    # Scenario B: Standard multi-turn placeholder fallback
+    # Scenario B: Upgraded Live Semantic Routing Switch (Issue #16)
     else:
-        reply_text = f"AuraWealth Core caught request: '{user_input}'. Routing framework configuration is live."
-        st.chat_message("assistant").write(reply_text)
-        st.session_state.messages.append({"role": "assistant", "content": reply_text})
+        with st.spinner("Triage Router analyzing request complexity..."):
+            try:
+                # 1. Inspect query intent metrics via our backend route
+                route_res = httpx.get(f"{BACKEND_URL}/api/v1/route/llm", params={"user_query": user_input})
+                route_data = route_res.json()
+                
+                tier = route_data["selected_tier"]
+                model = route_data["model_identifier"]
+                cost = route_data["compute_cost_per_1k_tokens"]
+                
+                # 2. Visually display the FinOps routing path on screen for the panel
+                st.info(f"⚡ **FinOps Routing Engine:** Triage assigned to `{tier}` using `{model}` (Cost/1k Tokens: `{cost}`).")
+                
+                # 3. Handle the model execution track
+                if tier == "LIGHTWEIGHT_COMMUNICATION_TIER":
+                    reply_text = f"Hello! I am AuraWealth's fast-response assistant. Got your message: '{user_input}'. How can I help you today?"
+                else:
+                    reply_text = f"Automated Alert: This query requires specialized depth. Please type 'run agent simulation' to engage the premium multi-agent reasoning cluster."
+                    
+                st.chat_message("assistant").write(reply_text)
+                st.session_state.messages.append({"role": "assistant", "content": reply_text})
+                
+            except Exception as e:
+                st.sidebar.error(f"Routing switch layer failed: {str(e)}")
+
 
 # --- UPGRADED TESTING SANDBOX FOR ISSUE #4 (HYBRID SEARCH) ---
 

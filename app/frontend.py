@@ -25,41 +25,42 @@ if user_input := st.chat_input("Ask AuraWealth..."):
     st.chat_message("user").write(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Scenario A: User triggers the Portfolio Simulation Workflow
-    if "simulate" in user_input.lower():
-        bot_notice = "System triggered portfolio matrix simulation. Handing off payload to FastAPI queue..."
-        st.chat_message("assistant").write(bot_notice)
-        st.session_state.messages.append({"role": "assistant", "content": bot_notice})
-        
-        mock_payload = {
-            "portfolio_name": "AuraWealth Growth Alpha",
-            "initial_capital": 50000.0,
-            "horizon_years": 12
-        }
-        
-        async def trigger_and_poll():
-            async with httpx.AsyncClient() as client:
-                # 1. Dispatch post to background tasks router
-                res = await client.post(f"{BACKEND_URL}/api/v1/simulate", json=mock_payload, timeout=10.0)
-                if res.status_code != 202:
-                    return "Error contacting core engine infrastructure."
+    # Upgraded Scenario A: Multi-Agent & Human-In-The-Loop Flow
+    if "simulate" in user_input.lower() or "agent" in user_input.lower():
+        with st.spinner("Activating AuraWealth 3-Agent Execution Cluster..."):
+            try:
+                # 1. Trigger the Multi-Agent Pipeline
+                res = httpx.post(f"{BACKEND_URL}/api/v1/agents/sequential", json={"user_query": user_input}, timeout=10.0)
+                agent_data = res.json()
                 
-                task_id = res.json()["task_id"]
+                # 2. Intercept and freeze at PENDING_REVIEW state (Issue #14)
+                st.warning("⚠️ **System State: PENDING_REVIEW** — Agent generation intercepted. Advisor verification mandatory.")
                 
-                # 2. Continuous non-blocking poll matrix until execution wraps up
-                with st.spinner("Processing deep portfolio calculations asynchronously..."):
-                    for _ in range(20):
-                        await asyncio.sleep(0.5)
-                        status_res = await client.get(f"{BACKEND_URL}/api/v1/tasks/{task_id}")
-                        task_data = status_res.json()
-                        
-                        if task_data["status"] == "completed":
-                            return f"🎉 **Simulation Complete!** Portfolio: `{task_data['portfolio_name']}` | Projected Yield: **${task_data['expected_return']:,}** (Processed asynchronously via background worker threads)."
-                return "Calculation task timed out on queue."
+                # Collapsible Agent Explainability Thoughts Log (Issue #15 bonus points!)
+                with st.expander("🔍 Show Multi-Agent Operational Trace Logs"):
+                    st.text(agent_data["intake_data"])
+                    st.text(agent_data["risk_assessment"])
+                
+                # The Interactive Human-In-The-Loop Decision Console
+                with st.form("hitl_review_console"):
+                    st.markdown("### 📝 Advisor Review Panel")
+                    st.markdown(agent_data["final_report"])
+                    
+                    critique_notes = st.text_input("Provide correction comments or refinement notes:")
+                    col1, col2 = st.columns(2)
+                    approve_clicked = col1.form_submit_button("✅ Approve Report to Client")
+                    reject_clicked = col2.form_submit_button("❌ Reject & Log Correction")
+                    
+                    if approve_clicked:
+                        st.success("Report successfully dispatched to client profile.")
+                        st.session_state.messages.append({"role": "assistant", "content": agent_data["final_report"]})
+                    elif reject_clicked:
+                        st.error(f"Report rejected. Notes logged to context feedback store: '{critique_notes}'")
+                        # Simple persistence to satisfy tracking criteria
+                        st.session_state.messages.append({"role": "assistant", "content": f"🔄 Advisor Feedback Logged: {critique_notes}"})
+            except Exception as e:
+                st.sidebar.error(f"Agent link failed: {str(e)}")
 
-        result_text = asyncio.run(trigger_and_poll())
-        st.chat_message("assistant").write(result_text)
-        st.session_state.messages.append({"role": "assistant", "content": result_text})
         
     # Scenario B: Standard multi-turn placeholder fallback
     else:

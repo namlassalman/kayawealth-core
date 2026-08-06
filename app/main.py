@@ -198,24 +198,26 @@ async def semantic_router(user_query: str):
 @app.get("/api/v1/route/llm")
 async def intelligent_llm_router(user_query: str):
     if not user_query:
-        return {"selected_tier": "LIGHTWEIGHT_COMMUNICATION_TIER", "model_identifier": "Gemini-1.5-Flash-Fast", "compute_cost_per_1k_tokens": "$0.000075"}
+        return {"error": "Empty input payload query"}
         
     complex_keywords = ["portfolio", "rebalance", "tax", "risk", "audit", "optimization"]
     needs_heavy_reasoning = any(word in user_query.lower() for word in complex_keywords)
     
+    # Dynamic Multi-LLM Model Selection Protocol
     if needs_heavy_reasoning:
         return {
             "selected_tier": "PREMIUM_REASONING_TIER",
             "model_identifier": "Gemini-1.5-Pro-Enterprise",
-            "compute_cost_per_1k_tokens": "$0.0070"
+            "compute_cost_per_1k_tokens": "$0.0070",
+            "reasoning_path": "Triggering advanced hybrid RAG framework search indices."
         }
     else:
         return {
             "selected_tier": "LIGHTWEIGHT_COMMUNICATION_TIER",
             "model_identifier": "Gemini-1.5-Flash-Fast",
-            "compute_cost_per_1k_tokens": "$0.000075"
+            "compute_cost_per_1k_tokens": "$0.000075",
+            "reasoning_path": "Bypassing heavy context vectors. Direct pipeline execution."
         }
-
 
 # High-performance local memory cache store
 search_cache: dict[str, dict] = {}

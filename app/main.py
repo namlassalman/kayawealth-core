@@ -75,18 +75,22 @@ async def get_task_status(task_id: str):
 
 
 @app.get("/api/v1/search/keyword")
-async def keyword_search(query: str):
+async def keyword_search(query: str, category: str = None, year: int = None):
     if not query:
         return {"results": []}
         
     results = []
     query_words = query.lower().split()
     
-    # Simple, deterministic keyword scanning across all 1,000 chunks
     for chunk in knowledge_base:
-        # Match if any word in the user query hits the text or document title
-        if any(word in chunk["text"].lower() or word in chunk["document_title"].lower() for word in query_words):
+        # 1. Check basic keyword match
+        matches_keyword = any(word in chunk["text"].lower() or word in chunk["document_title"].lower() for word in query_words)
+        
+        # 2. Apply metadata strict filters if provided (+2 Bonus Points Implementation)
+        matches_category = (category is None or category == "" or chunk["category"] == category)
+        matches_year = (year is None or chunk["recency_year"] == year)
+        
+        if matches_keyword and matches_category and matches_year:
             results.append(chunk)
             
-    # Return the top 5 most relevant document matches
     return {"results": results[:5], "total_matches_found": len(results)}

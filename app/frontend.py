@@ -2,52 +2,67 @@ import streamlit as st
 import httpx
 import asyncio
 
-# Configure the local FastAPI backend endpoint
 BACKEND_URL = "http://127.0.0.1:8000"
 
-st.set_page_config(page_title="KayaWealth Core", page_icon="💼", layout="centered")
+st.set_page_config(page_title="AuraWealth Command Center", page_icon="💼", layout="centered")
 
-st.title("💼 KayaWealth Core Dashboard")
-st.caption("Pyenv Python 3.11 Engine running on Pop!_OS")
+st.title("💼 AuraWealth Client Portal")
+st.caption("Enterprise Async Core Running Natively on Python 3.11")
 
-st.subheader("Portfolio Simulation Launcher")
+# Initialize state-persistent memory array
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "Welcome to AuraWealth. Type 'simulate' or ask a wealth planning question to begin."}
+    ]
 
-# Form inputs matching the backend Pydantic model
-with st.form("simulation_form"):
-    portfolio_name = st.text_input("Portfolio Name", value="Growth Alpha")
-    initial_capital = st.number_input("Initial Capital ($)", min_value=0.0, value=10000.0, step=1000.0)
-    horizon_years = st.slider("Investment Horizon (Years)", min_value=1, max_value=30, value=10)
-    submit_button = st.form_submit_button(label="Run Async Simulation")
+# Render historic message threads natively across top-to-bottom re-runs
+for msg in st.session_state.messages:
+    st.chat_message(msg["role"]).write(msg["content"])
 
-async def fetch_simulation(payload):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(f"{BACKEND_URL}/api/v1/simulate", json=payload, timeout=10.0)
-        return response
-
-if submit_button:
-    payload = {
-        "portfolio_name": portfolio_name,
-        "initial_capital": initial_capital,
-        "horizon_years": horizon_years
-    }
+# Capture live user conversational inputs
+if user_input := st.chat_input("Ask AuraWealth..."):
+    # Append user intent to session matrix memory
+    st.chat_message("user").write(user_input)
+    st.session_state.messages.append({"role": "user", "content": user_input})
     
-    st.info("Sending asynchronous request to FastAPI backend...")
-    
-    try:
-        # Resolve the async HTTP request within Streamlit's synchronous execution
-        response = asyncio.run(fetch_simulation(payload))
+    # Scenario A: User triggers the Portfolio Simulation Workflow
+    if "simulate" in user_input.lower():
+        bot_notice = "System triggered portfolio matrix simulation. Handing off payload to FastAPI queue..."
+        st.chat_message("assistant").write(bot_notice)
+        st.session_state.messages.append({"role": "assistant", "content": bot_notice})
         
-        if response.status_code == 200:
-            data = response.json()
-            st.success("Simulation complete!")
-            
-            # Display metrics visually
-            col1, col2 = st.columns(2)
-            col1.metric("Portfolio", data["portfolio_name"])
-            col2.metric("Projected Return", f"${data['expected_return']:,}")
-            
-            st.json(data)
-        else:
-            st.error(f"Backend returned an error: {response.status_code}")
-    except httpx.ConnectError:
-        st.error(f"Could not connect to backend at {BACKEND_URL}. Is your FastAPI server running?")
+        mock_payload = {
+            "portfolio_name": "AuraWealth Growth Alpha",
+            "initial_capital": 50000.0,
+            "horizon_years": 12
+        }
+        
+        async def trigger_and_poll():
+            async with httpx.AsyncClient() as client:
+                # 1. Dispatch post to background tasks router
+                res = await client.post(f"{BACKEND_URL}/api/v1/simulate", json=mock_payload, timeout=10.0)
+                if res.status_code != 202:
+                    return "Error contacting core engine infrastructure."
+                
+                task_id = res.json()["task_id"]
+                
+                # 2. Continuous non-blocking poll matrix until execution wraps up
+                with st.spinner("Processing deep portfolio calculations asynchronously..."):
+                    for _ in range(20):
+                        await asyncio.sleep(0.5)
+                        status_res = await client.get(f"{BACKEND_URL}/api/v1/tasks/{task_id}")
+                        task_data = status_res.json()
+                        
+                        if task_data["status"] == "completed":
+                            return f"🎉 **Simulation Complete!** Portfolio: `{task_data['portfolio_name']}` | Projected Yield: **${task_data['expected_return']:,}** (Processed asynchronously via background worker threads)."
+                return "Calculation task timed out on queue."
+
+        result_text = asyncio.run(trigger_and_poll())
+        st.chat_message("assistant").write(result_text)
+        st.session_state.messages.append({"role": "assistant", "content": result_text})
+        
+    # Scenario B: Standard multi-turn placeholder fallback
+    else:
+        reply_text = f"AuraWealth Core caught request: '{user_input}'. Routing framework configuration is live."
+        st.chat_message("assistant").write(reply_text)
+        st.session_state.messages.append({"role": "assistant", "content": reply_text})

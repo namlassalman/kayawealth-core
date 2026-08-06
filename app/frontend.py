@@ -66,3 +66,29 @@ if user_input := st.chat_input("Ask AuraWealth..."):
         reply_text = f"AuraWealth Core caught request: '{user_input}'. Routing framework configuration is live."
         st.chat_message("assistant").write(reply_text)
         st.session_state.messages.append({"role": "assistant", "content": reply_text})
+
+# --- Quick Testing Sandbox for Issue #22 ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 Keyword Search Tester")
+search_query = st.sidebar.text_input("Enter a keyword (e.g., tax, inflation, compliance):")
+
+if search_query:
+    try:
+        # Call your new backend endpoint synchronously for testing
+        with st.sidebar.spinner("Searching..."):
+            response = httpx.get(f"{BACKEND_URL}/api/v1/search/keyword", params={"query": search_query})
+            
+            if response.status_code == 200:
+                data = response.json()
+                st.sidebar.success(f"Found {data['total_matches_found']} total chunks!")
+                
+                # Render the text snippet of the top result inside an expander
+                if data["results"]:
+                    top_match = data["results"][0]  # Grab the first dict element out of the list
+                    with st.sidebar.expander(f"Top Match: {top_match['id']}"):
+                        st.write(f"**Doc:** {top_match['document_title']}")
+                        st.caption(top_match["text"])
+            else:
+                st.sidebar.error("Backend search failed.")
+    except Exception as e:
+        st.sidebar.error("Could not connect to backend.")

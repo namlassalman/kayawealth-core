@@ -6,6 +6,9 @@ import time  # Properly anchored at the top of the file
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
+# --- ENVIRONMENT STATE CONFIGURATION ---
+IS_PRODUCTION = False  # Toggle to True for presentation mode or deployment configs
+
 # Automatically load the 1,000 chunks into local server RAM on startup
 KB_PATH = os.path.join(os.path.dirname(__file__), "kb_chunks.json")
 with open(KB_PATH, "r") as f:
@@ -198,18 +201,31 @@ search_cache: dict[str, dict] = {}
 async def cached_search(query: str):
     current_time = time.time()
     
-    # 1. Check if query exists in cache and has not expired (10-second TTL)
+    # Deterministically calculate TTL thresholds based on active deployment tier
+    TTL_LIMIT = 86400.0 if IS_PRODUCTION else 10.0
+    
+    # 1. Evaluate cache database for valid unexpired entries
     if query in search_cache:
         cache_entry = search_cache[query]
-        if current_time - cache_entry["timestamp"] < 10.0:
-            return {"results": cache_entry["data"], "cache_hit": True, "ttl_remaining": round(10.0 - (current_time - cache_entry["timestamp"]), 2)}
+        if current_time - cache_entry["timestamp"] < TTL_LIMIT:
+            return {
+                "results": cache_entry["data"], 
+                "cache_hit": True, 
+                "active_environment": "production" if IS_PRODUCTION else "development",
+                "ttl_remaining_seconds": round(TTL_LIMIT - (current_time - cache_entry["timestamp"]), 2)
+            }
             
-    # 2. Cache Miss: Calculate fresh data results natively
+    # 2. Cache Miss: Recompute filter extraction algorithms natively
     fresh_data = _execute_keyword_filter(query)
     
-    # 3. Save to memory cache with current epoch timestamp
+    # 3. Synchronize current execution snapshot back to cache layer
     search_cache[query] = {
         "timestamp": current_time,
         "data": fresh_data[:2]
     }
-    return {"results": fresh_data[:2], "cache_hit": False, "ttl_remaining": 10.0}
+    return {
+        "results": fresh_data[:2], 
+        "cache_hit": False, 
+        "active_environment": "production" if IS_PRODUCTION else "development",
+        "ttl_remaining_seconds": TTL_LIMIT
+    }

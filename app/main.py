@@ -5,6 +5,7 @@ import json
 import time  # Properly anchored at the top of the file
 import re
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
@@ -14,10 +15,21 @@ from app.services.hierarchical import run_hierarchical_workflow
 from app.services.orchestration import detect_advisor_conflict, select_workflow
 from app.services.redis_queue import QueueUnavailable, RedisJobQueue
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await JOB_QUEUE.start()
+    try:
+        yield
+    finally:
+        await JOB_QUEUE.stop()
+        await SEARCH_CACHE.close()
+
+
 app = FastAPI(
     title="AuraWealth Core API",
     description="Asynchronous backend engine for portfolio optimization and agent routing",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # --- ENVIRONMENT STATE CONFIGURATION ---
@@ -90,16 +102,6 @@ SEARCH_CACHE = SearchCache(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), t
 JOB_QUEUE = RedisJobQueue(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
 DIALOGUE_SESSIONS: dict[str, DialogueState] = {}
 
-
-@app.on_event("startup")
-async def start_queue_worker():
-    await JOB_QUEUE.start()
-
-
-@app.on_event("shutdown")
-async def close_cache_connection():
-    await JOB_QUEUE.stop()
-    await SEARCH_CACHE.close()
 
 # --- INGRESS PROMPT-HACKING GUARDRAILS (Issue #12) ---
 PROMPT_INJECTION_PATTERNS = (

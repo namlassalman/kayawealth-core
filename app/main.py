@@ -8,6 +8,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
+from app.services.orchestration import detect_advisor_conflict, select_workflow
 from app.services.redis_queue import QueueUnavailable, RedisJobQueue
 
 app = FastAPI(
@@ -314,6 +315,10 @@ class AgentState(BaseModel):
     fallback_used: bool = False
 
 
+class OrchestrationRequest(BaseModel):
+    user_query: str
+
+
 def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
     """Apply deterministic groundedness and completeness checks to an agent draft."""
     required_sections = ["Client Inquiry", "Intake Diagnostics", "Risk Assessment", "Next Step"]
@@ -391,6 +396,50 @@ async def run_sequential_agents(state: AgentState):
 
     state.final_report = sanitize_output(state.final_report)
     return state
+
+
+def load_feedback_critiques() -> list[str]:
+    if not os.path.exists(FEEDBACK_FILE):
+        return []
+    try:
+        with open(FEEDBACK_FILE, "r") as feedback_file:
+            logs = json.load(feedback_file)
+        return [entry["advisor_critique"] for entry in logs if entry.get("advisor_critique")]
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+@app.post("/api/v1/orchestrator/route")
+async def run_contextual_orchestrator(payload: OrchestrationRequest):
+    """Route a query and stop policy conflicts before a report is compiled."""
+    enforce_prompt_guardrails(payload.user_query)
+    critiques = load_feedback_critiques()
+    conflict = detect_advisor_conflict(payload.user_query, critiques)
+    workflow = select_workflow(payload.user_query)
+
+    if conflict:
+        return {
+            "final_report": "⚠️ PENDING_REVIEW: An advisor policy conflict was detected. No portfolio recommendation was generated.",
+            "route": workflow,
+            "conflict_flag": True,
+            "conflict_reason": conflict,
+        }
+
+    if workflow == "rag_search":
+        results = _execute_keyword_filter(payload.user_query) + _execute_semantic_filter(payload.user_query)
+        unique_results = list({result["id"]: result for result in results}.values())[:3]
+        source_titles = "\n".join(f"* {result['document_title']} ({result['category']})" for result in unique_results)
+        return {
+            "final_report": sanitize_output(f"### 📚 AuraWealth Knowledge Search\n\nRelevant governed sources:\n{source_titles or '* No matching source found.'}"),
+            "route": workflow,
+            "conflict_flag": False,
+            "sources_used": len(unique_results),
+        }
+
+    agent_result = await run_sequential_agents(AgentState(user_query=payload.user_query))
+    response = agent_result.model_dump()
+    response.update({"route": workflow, "conflict_flag": False, "feedback_records_considered": len(critiques)})
+    return response
 
 
 

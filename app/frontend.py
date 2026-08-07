@@ -146,7 +146,7 @@ if current_query:
     with st.spinner("AuraWealth processing query..."):
         try:
             res = httpx.post(
-                f"{BACKEND_URL}/api/v1/agents/sequential", 
+                f"{BACKEND_URL}/api/v1/orchestrator/route",
                 json={"user_query": current_query}, 
                 timeout=10.0
             )
@@ -157,6 +157,7 @@ if current_query:
                 res.raise_for_status()
                 report_payload = res.json()
                 reply_text = report_payload.get("final_report", "Error generating response.")
+                st.sidebar.caption(f"Workflow route: {report_payload.get('route', 'security_block')}")
             
             append_message("assistant", reply_text)
             st.session_state.active_agent_report = report_payload

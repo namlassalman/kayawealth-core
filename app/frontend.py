@@ -102,6 +102,9 @@ if "queue_index" not in st.session_state:
 if "active_trigger" not in st.session_state:
     st.session_state.active_trigger = None
 
+if "dialogue_state" not in st.session_state:
+    st.session_state.dialogue_state = None
+
 
 # --- DYNAMIC INTERACTIVE QUICK ACTIONS ---
 st.markdown(f"### 🚀 Quick Actions ({st.session_state.current_role} Tier)")
@@ -120,6 +123,11 @@ else:
         st.rerun()
 
 st.markdown("---")
+
+if st.session_state.dialogue_state:
+    st.sidebar.caption(f"Dialogue focus: {st.session_state.dialogue_state['focus']}")
+    if st.session_state.dialogue_state.get("transition"):
+        st.sidebar.caption(f"Context switch: {st.session_state.dialogue_state['transition']}")
 
 # Render historic message threads natively across top-to-bottom re-runs
 for msg in st.session_state.messages:
@@ -156,7 +164,7 @@ if current_query:
         try:
             res = httpx.post(
                 f"{BACKEND_URL}/api/v1/orchestrator/route",
-                json={"user_query": current_query}, 
+                json={"user_query": current_query, "session_token": st.session_state.session_token},
                 timeout=10.0
             )
             if res.status_code == 400:
@@ -167,6 +175,8 @@ if current_query:
                 report_payload = res.json()
                 reply_text = report_payload.get("final_report", "Error generating response.")
                 st.sidebar.caption(f"Workflow route: {report_payload.get('route', 'security_block')}")
+                if report_payload.get("dialogue_state"):
+                    st.session_state.dialogue_state = report_payload["dialogue_state"]
             
             append_message("assistant", reply_text)
             st.session_state.active_agent_report = report_payload
@@ -363,13 +373,14 @@ if st.sidebar.button("Run manager-led workflow"):
     try:
         hierarchical_response = httpx.post(
             f"{BACKEND_URL}/api/v1/agents/hierarchical",
-            json={"user_query": hierarchical_query},
+            json={"user_query": hierarchical_query, "session_token": st.session_state.session_token},
             timeout=10.0,
         )
         hierarchical_response.raise_for_status()
         hierarchical_result = hierarchical_response.json()
         st.sidebar.caption(f"Manager route: {hierarchical_result['manager_route']}")
         st.sidebar.caption(f"Delegated to: {', '.join(hierarchical_result['delegated_agents'])}")
+        st.sidebar.caption(f"Dialogue focus: {hierarchical_result['dialogue_state']['focus']}")
         st.sidebar.markdown(hierarchical_result["final_report"])
     except Exception as error:
         st.sidebar.error(f"Hierarchical workflow failed: {error}")

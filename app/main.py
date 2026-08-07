@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
+from app.services.dialogue import DialogueState, update_dialogue_state
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.hierarchical import run_hierarchical_workflow
 from app.services.orchestration import detect_advisor_conflict, select_workflow
@@ -79,6 +80,7 @@ def load_environment_profile() -> dict:
 ENV_CONFIG = load_environment_profile()
 SEARCH_CACHE = SearchCache(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), ttl_seconds=60)
 JOB_QUEUE = RedisJobQueue(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
+DIALOGUE_SESSIONS: dict[str, DialogueState] = {}
 
 
 @app.on_event("startup")
@@ -316,10 +318,12 @@ class AgentState(BaseModel):
     critic_verdict: str = ""
     fallback_used: bool = False
     operational_trace: list[dict[str, str]] = []
+    dialogue_focus: str = "general_advice"
 
 
 class OrchestrationRequest(BaseModel):
     user_query: str
+    session_token: str = "anonymous"
 
 
 def add_operational_trace(state: AgentState, node: str, outcome: str, details: str) -> None:
@@ -373,7 +377,7 @@ async def run_sequential_agents(state: AgentState):
             pass
 
     await asyncio.sleep(0.1)
-    state.intake_data = "Client profile loaded. Target Track: Consumer Wealth Optimization."
+    state.intake_data = f"Client profile loaded. Active dialogue focus: {state.dialogue_focus}."
     add_operational_trace(state, "intake_agent", "completed", "Client objective normalized for advisory workflow.")
     
     await asyncio.sleep(0.1)
@@ -437,6 +441,8 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
     """Route a query and stop policy conflicts before a report is compiled."""
     enforce_prompt_guardrails(payload.user_query)
     critiques = load_feedback_critiques()
+    dialogue_state = update_dialogue_state(DIALOGUE_SESSIONS.get(payload.session_token), payload.user_query)
+    DIALOGUE_SESSIONS[payload.session_token] = dialogue_state
     conflict = detect_advisor_conflict(payload.user_query, critiques)
     workflow = select_workflow(payload.user_query)
 
@@ -452,6 +458,7 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
                 "outcome": "blocked",
                 "details": "Advisor policy conflict requires human review.",
             }],
+            "dialogue_state": dialogue_state.payload(),
         }
 
     if workflow == "rag_search":
@@ -469,12 +476,18 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
                 "outcome": "routed_to_rag",
                 "details": f"Retrieved {len(unique_results)} governed sources.",
             }],
+            "dialogue_state": dialogue_state.payload(),
         }
 
-    agent_result = await run_sequential_agents(AgentState(user_query=payload.user_query))
+    agent_result = await run_sequential_agents(AgentState(user_query=payload.user_query, dialogue_focus=dialogue_state.focus))
     add_operational_trace(agent_result, "intent_arbiter", "routed_to_agents", f"Selected workflow: {workflow}.")
     response = agent_result.model_dump()
-    response.update({"route": workflow, "conflict_flag": False, "feedback_records_considered": len(critiques)})
+    response.update({
+        "route": workflow,
+        "conflict_flag": False,
+        "feedback_records_considered": len(critiques),
+        "dialogue_state": dialogue_state.payload(),
+    })
     return response
 
 
@@ -489,6 +502,9 @@ async def run_hierarchical_agents(payload: OrchestrationRequest):
         "outcome": "delegated_and_consolidated",
         "details": f"Manager route: {result['manager_route']}; delegates: {', '.join(result['delegated_agents'])}.",
     }]
+    dialogue_state = update_dialogue_state(DIALOGUE_SESSIONS.get(payload.session_token), payload.user_query)
+    DIALOGUE_SESSIONS[payload.session_token] = dialogue_state
+    result["dialogue_state"] = dialogue_state.payload()
     return result
 
 

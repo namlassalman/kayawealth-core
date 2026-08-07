@@ -301,3 +301,17 @@ if st.sidebar.button("Evaluate latest assistant response"):
         st.sidebar.caption(f"{evaluation['verdict']} — Missing: {', '.join(evaluation['missing_signals']) or 'None'}")
     except Exception as error:
         st.sidebar.error(f"Evaluation failed: {error}")
+
+# --- REDIS CACHE VALIDATION (Issue #17) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚡ Redis Cache Validation")
+cache_query = st.sidebar.text_input("Search query to cache", key="cache_query")
+if st.sidebar.button("Run cached search"):
+    try:
+        cache_response = httpx.get(f"{BACKEND_URL}/api/v1/search/cached", params={"query": cache_query}, timeout=10.0)
+        cache_response.raise_for_status()
+        cache_data = cache_response.json()
+        st.sidebar.success(f"{'HIT' if cache_data['cache_hit'] else 'MISS'} via {cache_data['cache_backend']}")
+        st.sidebar.caption(f"TTL: {cache_data['ttl_seconds']} seconds")
+    except Exception as error:
+        st.sidebar.error(f"Cache check failed: {error}")

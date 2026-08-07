@@ -6,6 +6,7 @@ import time  # Properly anchored at the top of the file
 import re
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
+from app.services.cache import SearchCache
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.worker import execute_distributed_simulation
 
@@ -73,6 +74,12 @@ def load_environment_profile() -> dict:
     return env_profile
 
 ENV_CONFIG = load_environment_profile()
+SEARCH_CACHE = SearchCache(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), ttl_seconds=60)
+
+
+@app.on_event("shutdown")
+async def close_cache_connection():
+    await SEARCH_CACHE.close()
 
 # --- INGRESS PROMPT-HACKING GUARDRAILS (Issue #12) ---
 PROMPT_INJECTION_PATTERNS = (
@@ -447,40 +454,24 @@ async def intelligent_llm_router(user_query: str):
             "reasoning_path": "Bypassing heavy context vectors. Direct pipeline execution."
         }
 
-# High-performance local memory cache store
-search_cache: dict[str, dict] = {}
-
 @app.get("/api/v1/search/cached")
 async def cached_search(query: str):
-    current_time = time.time()
-    
-    # Deterministically calculate TTL thresholds based on active deployment tier
-    TTL_LIMIT = 86400.0 if IS_PRODUCTION else 10.0
-    
-    # 1. Evaluate cache database for valid unexpired entries
-    if query in search_cache:
-        cache_entry = search_cache[query]
-        if current_time - cache_entry["timestamp"] < TTL_LIMIT:
-            return {
-                "results": cache_entry["data"], 
-                "cache_hit": True, 
-                "active_environment": "production" if IS_PRODUCTION else "development",
-                "ttl_remaining_seconds": round(TTL_LIMIT - (current_time - cache_entry["timestamp"]), 2)
-            }
-            
-    # 2. Cache Miss: Recompute filter extraction algorithms natively
+    cached_results, backend = await SEARCH_CACHE.get(query)
+    if cached_results is not None:
+        return {
+            "results": cached_results,
+            "cache_hit": True,
+            "cache_backend": backend,
+            "ttl_seconds": 60,
+        }
+
     fresh_data = _execute_keyword_filter(query)
-    
-    # 3. Synchronize current execution snapshot back to cache layer
-    search_cache[query] = {
-        "timestamp": current_time,
-        "data": fresh_data[:2]
-    }
+    backend = await SEARCH_CACHE.set(query, fresh_data[:2])
     return {
-        "results": fresh_data[:2], 
-        "cache_hit": False, 
-        "active_environment": "production" if IS_PRODUCTION else "development",
-        "ttl_remaining_seconds": TTL_LIMIT
+        "results": fresh_data[:2],
+        "cache_hit": False,
+        "cache_backend": backend,
+        "ttl_seconds": 60,
     }
 
 # In-memory global task cluster storage

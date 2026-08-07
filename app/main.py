@@ -14,6 +14,7 @@ from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.hierarchical import run_hierarchical_workflow
 from app.services.orchestration import detect_advisor_conflict, select_workflow
 from app.services.redis_queue import QueueUnavailable, RedisJobQueue
+from app.services.recommendations import RecommendationStore, RecommendationUnavailable
 from app.services.search import SearchService
 from app.models import JobStatus, SimulationTask
 
@@ -25,6 +26,7 @@ async def lifespan(_: FastAPI):
     finally:
         await JOB_QUEUE.stop()
         await SEARCH_CACHE.close()
+        await RECOMMENDATION_STORE.close()
 
 
 app = FastAPI(
@@ -93,6 +95,7 @@ def load_environment_profile() -> dict:
 ENV_CONFIG = load_environment_profile()
 SEARCH_CACHE = SearchCache(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), ttl_seconds=60)
 JOB_QUEUE = RedisJobQueue(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
+RECOMMENDATION_STORE = RecommendationStore(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
 DIALOGUE_SESSIONS: dict[str, DialogueState] = {}
 
 
@@ -294,6 +297,11 @@ class OrchestrationRequest(BaseModel):
     session_token: str = "anonymous"
 
 
+class RecommendationDecisionRequest(BaseModel):
+    decision: JobStatus
+    correction_notes: str = ""
+
+
 def add_operational_trace(state: AgentState, node: str, outcome: str, details: str) -> None:
     """Record an auditable operational event without recording private reasoning."""
     state.operational_trace.append({
@@ -302,6 +310,10 @@ def add_operational_trace(state: AgentState, node: str, outcome: str, details: s
         "outcome": outcome,
         "details": details,
     })
+
+
+def requires_advisor_review(user_query: str) -> bool:
+    return any(term in user_query.lower() for term in ("rebalance", "reallocate", "allocation", "liquidate", "buy", "sell"))
 
 
 def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
@@ -449,7 +461,21 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
 
     agent_result = await run_sequential_agents(AgentState(user_query=payload.user_query, dialogue_focus=dialogue_state.focus))
     add_operational_trace(agent_result, "intent_arbiter", "routed_to_agents", f"Selected workflow: {workflow}.")
-    response = agent_result.model_dump()
+    if requires_advisor_review(payload.user_query):
+        try:
+            recommendation = await RECOMMENDATION_STORE.create(payload.user_query, agent_result.final_report)
+        except RecommendationUnavailable as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        add_operational_trace(agent_result, "review_gate", "pending_review", "Portfolio-change recommendation withheld for advisor decision.")
+        agent_result.final_report = "⚠️ PENDING_REVIEW: Your portfolio-change request has been sent to an advisor for approval."
+        response = agent_result.model_dump()
+        response.update({
+            "recommendation_id": recommendation.recommendation_id,
+            "recommendation_status": recommendation.status.value,
+            "client_delivery_blocked": True,
+        })
+    else:
+        response = agent_result.model_dump()
     response.update({
         "route": workflow,
         "conflict_flag": False,
@@ -457,6 +483,32 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
         "dialogue_state": dialogue_state.payload(),
     })
     return response
+
+
+@app.get("/api/v1/recommendations/{recommendation_id}")
+async def get_recommendation(recommendation_id: str):
+    try:
+        record = await RECOMMENDATION_STORE.get(recommendation_id)
+    except RecommendationUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recommendation record not found")
+    return record
+
+
+@app.post("/api/v1/recommendations/{recommendation_id}/decision")
+async def decide_recommendation(recommendation_id: str, payload: RecommendationDecisionRequest):
+    try:
+        record = await RECOMMENDATION_STORE.decide(recommendation_id, payload.decision, payload.correction_notes)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Recommendation record not found") from error
+    except RecommendationUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if payload.decision is JobStatus.REJECTED and payload.correction_notes:
+        await store_advisor_feedback(FeedbackPayload(query=record.user_query, critique=payload.correction_notes))
+    return record
 
 
 @app.post("/api/v1/agents/hierarchical")

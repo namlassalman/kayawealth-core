@@ -1,6 +1,5 @@
 import streamlit as st
 import httpx
-import requests
 import json, os, time, uuid
 import sys
 from pathlib import Path
@@ -10,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.ui.sidebar_panels import render_sidebar_panels
+from app.ui.advisor_panel import render_advisor_console
 
 BACKEND_URL = "http://127.0.0.1:8000"
 SESSION_FILE = os.getenv("AURAWEALTH_SESSION_FILE", "history_session.json")
@@ -140,7 +140,11 @@ if st.session_state.dialogue_state:
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
-if st.session_state.active_agent_report and st.session_state.active_agent_report.get("operational_trace"):
+if (
+    st.session_state.current_role == "Wealth Advisor"
+    and st.session_state.active_agent_report
+    and st.session_state.active_agent_report.get("operational_trace")
+):
     with st.expander("🔍 Show Multi-Agent Operational Trace Logs"):
         render_operational_trace(st.session_state.active_agent_report["operational_trace"])
 
@@ -219,55 +223,6 @@ if len(st.session_state.messages) > 1 and st.session_state.messages[-1]["role"] 
             st.rerun()
 
 
-# --- PERSISTENT ADVISOR CONSOLE LAYER ---
-if st.session_state.current_role == "Wealth Advisor" and st.session_state.active_agent_report:
-    try:
-        queue_res = httpx.get(f"{BACKEND_URL}/api/v1/queue/next", params={"current_index": st.session_state.queue_index})
-        queue_data = queue_res.json()
-        
-        if queue_data["status"] == "empty":
-            st.success("🎉 **Queue Cleared!** All pending audit reviews are complete.")
-            st.session_state.active_agent_report = None
-            st.session_state.queue_index = 0
-        else:
-            item = queue_data["item"]
-            st.warning(f"⚠️ **System State: PENDING_REVIEW ({item['ticket_id']})** — Verification mandatory.")
-            
-            with st.expander("🔍 Show Multi-Agent Operational Trace Logs"):
-                trace_events = st.session_state.active_agent_report.get("operational_trace", [])
-                if trace_events:
-                    render_operational_trace(trace_events)
-                else:
-                    st.text(item["intake_data"])
-                    st.text(item["risk_assessment"])
-            
-            st.markdown("### 📝 Advisor Review Panel")
-            st.markdown(item["final_report"])
-            
-            critique_notes = st.text_input("Provide correction comments or refinement notes:", key=f"critique_{item['ticket_id']}")
-            col1, col2 = st.columns(2)
-            
-            if col1.button("✅ Approve Report to Client"):
-                st.success(f"Dispatched {item['ticket_id']} straight to client profile.")
-                append_message("assistant", item["final_report"])
-                st.session_state.queue_index += 1
-                st.rerun()
-                
-            if col2.button("❌ Reject & Log Correction"):
-                if critique_notes:
-                    requests.post(
-                        f"{BACKEND_URL}/api/v1/feedback/log",
-                        json={"query": item["user_query"], "critique": critique_notes},
-                        timeout=5.0
-                    )
-                    st.sidebar.success(f"Critique for {item['ticket_id']} successfully synchronized to disk!")
-                    append_message("assistant", f"🔄 Advisor Feedback Logged for {item['ticket_id']}: {critique_notes}")
-                    st.session_state.queue_index += 1
-                    st.rerun()
-                else:
-                    st.sidebar.warning("Please type your critique notes before clicking Reject.")
-                    
-    except Exception as e:
-        st.sidebar.error(f"Failed to fetch next queue packet: {str(e)}")
+render_advisor_console(st, BACKEND_URL, append_message)
 
 render_sidebar_panels(st, BACKEND_URL)

@@ -31,3 +31,29 @@ async def test_core_api_health_golden_set_and_guardrails(fake_redis):
             "session_token": "test-session",
         })
         assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_portfolio_recommendation_is_persisted_and_blocked_until_approved(fake_redis):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        routed = await client.post("/api/v1/orchestrator/route", json={
+            "user_query": "Please rebalance my portfolio.",
+            "session_token": "review-session",
+        })
+        assert routed.status_code == 200
+        body = routed.json()
+        assert body["client_delivery_blocked"] is True
+        assert body["recommendation_status"] == "pending_review"
+        assert "PENDING_REVIEW" in body["final_report"]
+
+        review = await client.get(f"/api/v1/recommendations/{body['recommendation_id']}")
+        assert review.status_code == 200
+        assert "Client Inquiry" in review.json()["final_report"]
+
+        approved = await client.post(
+            f"/api/v1/recommendations/{body['recommendation_id']}/decision",
+            json={"decision": "approved", "correction_notes": "Suitability checked."},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "approved"

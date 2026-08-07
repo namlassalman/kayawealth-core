@@ -18,3 +18,12 @@ class SimulationTask(BaseModel):
     status: JobStatus
     expected_return: float = 0.0
     processed_async: bool = False
+
+
+class RecommendationRecord(BaseModel):
+    recommendation_id: str
+    user_query: str
+    final_report: str
+    status: JobStatus
+    created_at: str
+    correction_notes: str = ""

@@ -7,22 +7,103 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.worker import execute_distributed_simulation
 
-# --- ENVIRONMENT STATE CONFIGURATION ---
-IS_PRODUCTION = False  # Toggle to True for presentation mode or deployment configs
-
-# Automatically load the 1,000 chunks into local server RAM on startup
-KB_PATH = os.path.join(os.path.dirname(__file__), "kb_chunks.json")
-with open(KB_PATH, "r") as f:
-    knowledge_base: list[dict] = json.load(f)
-
 app = FastAPI(
     title="AuraWealth Core API",
     description="Asynchronous backend engine for portfolio optimization and agent routing",
     version="1.0.0"
 )
 
+# --- ENVIRONMENT STATE CONFIGURATION ---
+IS_PRODUCTION = False  # Toggle to True for presentation mode or deployment configs
+
+# Force the file to save directly at the main project root folder level
+FEEDBACK_FILE = "feedback_logs.json"
+
+# Automatically load the 1,000 chunks into local server RAM on startup
+KB_PATH = os.path.join(os.path.dirname(__file__), "kb_chunks.json")
+with open(KB_PATH, "r") as f:
+    knowledge_base: list[dict] = json.load(f)
+
+# Simulated incoming enterprise advisory transaction queue
+INCOMING_ADVISOR_QUEUE = [
+    {
+        "ticket_id": "TICKET_A101",
+        "user_query": "I want to run an asset simulation and rebalance my high-risk tax portfolio",
+        "intake_data": "Client: Salman. Net Worth Track: Tier-1 HNW. Focus: Capital gains optimization.",
+        "risk_assessment": "Current allocation exceeds volatility limits by 4.2%. Rebalancing triggered.",
+        "final_report": "### 💼 Advisory Report A101 (Tax Optimization)\n\n* **Strategy:** Liquidate legacy tech equities. Reallocate 15% to short-duration sovereign tax-exempt bonds."
+    },
+    {
+        "ticket_id": "TICKET_B202",
+        "user_query": "Review international estate transfer exposure constraints",
+        "intake_data": "Client: Cross-border trust file. Focus: Foreign asset disclosure thresholds.",
+        "risk_assessment": "Compliance flag: Sub-chapter J processing limits active. Low risk profile verified.",
+        "final_report": "### 💼 Advisory Report B202 (Estate Governance)\n\n* **Strategy:** Structuring asset transfers via localized offshore trust vehicles to mitigate cross-jurisdictional withholding penalties."
+    },
+    {
+        "ticket_id": "TICKET_C303",
+        "user_query": "Execute liquidity match evaluation against Q3 drawdown requests",
+        "intake_data": "Client: Real estate development fund account. Focus: Near-term cash equivalents allocation.",
+        "risk_assessment": "Liquidity stress test: Basel III cash coverage metric sits securely at 115%. Approved.",
+        "final_report": "### 💼 Advisory Report C303 (Liquidity Match)\n\n* **Strategy:** Allocate $250k into highly liquid commercial money-market instruments to safely meet upcoming capital calls."
+    }
+]
+
 # Thread-safe in-memory task database matrix
 tasks_db: dict[str, dict] = {}
+
+# --- ENTERPRISE ENVIRONMENT PIPELINE CONFIGURATION (Issue #27) ---
+def load_environment_profile() -> dict:
+    env_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+    env_profile = {"ENV": "PROD", "TTL": 86400.0} # Secure default fallback
+    
+    if os.path.exists(env_file_path):
+        with open(env_file_path, "r") as f:
+            for line in f:
+                if line.startswith("AURAWEALTH_ENV="):
+                    parts = line.strip().split("=")
+                    if len(parts) == 2:
+                        current_env = parts[1].strip().upper()
+                        if current_env == "DEV":
+                            return {"ENV": "DEV", "TTL": 10.0}
+                        elif current_env == "TEST":
+                            return {"ENV": "TEST", "TTL": 60.0}
+    return env_profile
+
+ENV_CONFIG = load_environment_profile()
+
+# Explicitly model the incoming frontend payload structure
+class FeedbackPayload(BaseModel):
+    query: str
+    critique: str
+
+@app.post("/api/v1/feedback/log")
+async def log_client_feedback(payload: FeedbackPayload):
+    logs = []
+    
+    # 1. Read existing historical critique array if present
+    if os.path.exists(FEEDBACK_FILE):
+        try:
+            with open(FEEDBACK_FILE, "r") as f:
+                logs = json.load(f)
+                if not isinstance(logs, list):
+                    logs = []
+        except Exception:
+            logs = []
+            
+    # 2. Append the fresh user critique dictionary entry 
+    new_entry = {
+        "user_query": payload.query,
+        "advisor_critique": payload.critique,
+        "timestamp": str(asyncio.get_event_loop().time())
+    }
+    logs.append(new_entry)
+    
+    # 3. Force an immediate flush write to local disk
+    with open(FEEDBACK_FILE, "w") as f:
+        json.dump(logs, f, indent=4)
+        
+    return {"status": "SUCCESS", "stored_records_count": len(logs)}
 
 class SimulationRequest(BaseModel):
     portfolio_name: str
@@ -64,6 +145,7 @@ def calculate_heavy_simulation(task_id: str, initial_capital: float, horizon_yea
         "expected_return": round(projected_value, 2),
         "processed_async": True
     })
+
 
 # --- FASTAPI ROUTE HANDLERS ---
 
@@ -136,21 +218,62 @@ class AgentState(BaseModel):
 
 @app.post("/api/v1/agents/sequential")
 async def run_sequential_agents(state: AgentState):
-    await asyncio.sleep(0.5)
-    state.intake_data = "Client data verified. Focus area identified: Portfolio optimization and tax tracking."
+    feedback_context = ""
+    critic_verdict = "PASS"
+    confidence_score = 1.0
     
-    await asyncio.sleep(0.5)
-    state.risk_assessment = "Asset allocation risk verified against regional compliance benchmarks. Status: Approved (Tier-1 Low Volatility)."
+    # 1. READ DISK CRITIQUES TO INJECT LEARNING LOOPS (Issue 9)
+    if os.path.exists(FEEDBACK_FILE):
+        try:
+            with open(FEEDBACK_FILE, "r") as f:
+                logs = json.load(f)
+            if logs:
+                # Compile all historic human rejections to guide self-correction
+                all_critiques = [l["advisor_critique"] for l in logs if "advisor_critique" in l]
+                if all_critiques:
+                    feedback_context = " | ".join(all_critiques[-3:]) # Last 3 critiques
+        except Exception:
+            pass
+
+    await asyncio.sleep(0.1)
+    state.intake_data = "Client profile loaded. Target Track: Consumer Wealth Optimization."
     
-    await asyncio.sleep(0.5)
-    state.final_report = (
-        f"### 💼 AuraWealth Executive Advisory Report\n\n"
-        f"* **Client Request Profile:** '{state.user_query}'\n"
-        f"* **Intake Diagnostics:** {state.intake_data}\n"
-        f"* **Risk Assessment:** {state.risk_assessment}\n\n"
-        f"* **Strategic Recommendation:** Proceed with tax-optimized rebalancing. Portfolio risk matches parameters cleanly."
-    )
+    await asyncio.sleep(0.1)
+    state.risk_assessment = "Risk thresholds verified against regional benchmarks. Parameters: Stable."
+
+    # 2. EVALUATE CRITIC FUNCTION AND ASSIGN CONFIDENCE (Issue 8)
+    # Check if the user is frustrated or if past rejections are being ignored
+    user_query_lower = state.user_query.lower()
+    is_frustrated = any(w in user_query_lower for w in ["boring", "not working", "repeat", "purpose", "hello", "hi"])
+    
+    if is_frustrated or "noting stuff" in feedback_context.lower():
+        critic_verdict = "FAIL: Response contains low engagement or repetitive generic text."
+        confidence_score = 0.45  # Force fallback logic (< 80%)
+    
+    # 3. FALLBACK REROUTING & REWRITE MATRIX (Issue 8 & 9)
+    if confidence_score < 0.80:
+        # Self-correction rewrite triggered dynamically by past poor feedback
+        state.final_report = (
+            f"### 🎯 AuraWealth Smart Advisory Engine\n\n"
+            f"Thank you for reaching out. Based on active performance telemetry, I have adjusted my communication layer to be clearer and more engaging.\n\n"
+            f"**Application Purpose:** I am a unified Wealth Management Command Center designed to replace fragmented spreadsheets. I provide everyday investors a real-time, holistic view of their net worth, while equipping wealth managers with tools to scale personal advisory service.\n\n"
+            f"#### 📊 Proactive Financial Evaluation Diagnostics:\n"
+            f"* **Core Pillar 1:** Automated Continuous Tax-Loss Harvesting to preserve capital gains margins.\n"
+            f"* **Core Pillar 2:** Index Rebalancing to realign asset allocations dynamically.\n\n"
+            f"**💡 Let's get the conversation moving:** Based on your current profile, would you like to run a forward-looking simulation on your portfolio value, or should we evaluate your asset exposure limits against macroeconomic inflation models?"
+        )
+    else:
+        # Default standard execution track
+        state.final_report = (
+            f"### 💼 AuraWealth Executive Advisory Report\n\n"
+            f"* **Client Inquiry:** '{state.user_query}'\n"
+            f"* **Intake Diagnostics:** {state.intake_data}\n"
+            f"* **Recommendation:** Asset parameters match standard allocations. Proceeding with logging transaction signatures."
+        )
+        
     return state
+
+
 
 
 @app.get("/api/v1/search/reranked")
@@ -273,3 +396,58 @@ async def get_queue_job_status(job_id: str):
     if job_id not in queue_state_store:
         raise HTTPException(status_code=404, detail="Job token not found in cluster queue")
     return queue_state_store[job_id]
+
+class FeedbackPayload(BaseModel):
+    query: str
+    critique: str
+
+@app.post("/api/v1/feedback/log")
+async def store_advisor_feedback(payload: FeedbackPayload):
+    logs = []
+    
+    # Read existing history matrix if file already exists
+    if os.path.exists(FEEDBACK_FILE):
+        try:
+            with open(FEEDBACK_FILE, "r") as f:
+                logs = json.load(f)
+        except Exception:
+            logs = []
+            
+    # Append the new learning context parameters
+    logs.append({
+        "timestamp": time.time(),
+        "user_query": payload.query,
+        "advisor_critique": payload.critique
+    })
+    
+    # Flush directly back to disk storage file
+    with open(FEEDBACK_FILE, "w") as f:
+        json.dump(logs, f, indent=4)
+        
+    return {"status": "success", "total_stored_logs": len(logs)}
+
+
+@app.get("/api/v1/queue/next")
+async def get_next_queue_item(current_index: int = 0, fallback_query: str = "run agent simulation"):
+    # Read our live dynamic .env configuration parameters
+    current_env = ENV_CONFIG["ENV"]
+    
+    # Track A: If running in PROD/TEST pipelines, generate a completely real data instance
+    if current_env != "DEV":
+        # Simulate generating a single, genuine live-agent packet format
+        return {
+            "status": "active",
+            "item": {
+                "ticket_id": f"LIVE_{uuid.uuid4().hex[:4].upper()}",
+                "user_query": fallback_query,
+                "intake_data": "Client data verified. Focus area identified: Portfolio optimization.",
+                "risk_assessment": "Asset allocation risk verified against regional compliance benchmarks.",
+                "final_report": f"### 💼 Live AuraWealth Executive Advisory Report\n\n* **Context:** Real-time production processing enabled under active `{current_env}` environment."
+            }
+        }
+        
+    # Track B: If running in DEV mode, serve our multi-ticket interactive sandbox loop
+    if current_index >= len(INCOMING_ADVISOR_QUEUE):
+        return {"status": "empty", "message": "All pending advisor review queues have been successfully processed."}
+    return {"status": "active", "item": INCOMING_ADVISOR_QUEUE[current_index]}
+

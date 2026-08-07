@@ -89,6 +89,50 @@ def enforce_prompt_guardrails(text: str) -> None:
             detail="Security policy blocked this request because it contains an instruction-override pattern.",
         )
 
+
+# --- EGRESS PII SANITIZATION (Issue #13) ---
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+NRIC_PATTERN = re.compile(r"\b[STFG]\d{7}[A-Z]\b", flags=re.IGNORECASE)
+SSN_PATTERN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+SG_PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+65[\s-]?)?[689]\d{3}[\s-]?\d{4}(?!\w)")
+CARD_CANDIDATE_PATTERN = re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)")
+LABELED_ADDRESS_PATTERN = re.compile(
+    r"\b(?:home|mailing|residential|street)?\s*address\s*(?:is|:)?\s*[^.\n;]+",
+    flags=re.IGNORECASE,
+)
+STREET_ADDRESS_PATTERN = re.compile(
+    r"\b\d{1,5}\s+[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,4}\s+"
+    r"(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|way)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_valid_card_number(candidate: str) -> bool:
+    digits = "".join(character for character in candidate if character.isdigit())
+    if not 13 <= len(digits) <= 19:
+        return False
+    checksum = 0
+    for index, digit in enumerate(reversed(digits)):
+        value = int(digit)
+        if index % 2:
+            value = value * 2 - 9 if value > 4 else value * 2
+        checksum += value
+    return checksum % 10 == 0
+
+
+def sanitize_output(text: str) -> str:
+    """Redact sensitive identifiers before any assistant output leaves the backend."""
+    sanitized = EMAIL_PATTERN.sub("[REDACTED_EMAIL]", text)
+    sanitized = NRIC_PATTERN.sub("[REDACTED_NRIC]", sanitized)
+    sanitized = SSN_PATTERN.sub("[REDACTED_SSN]", sanitized)
+    sanitized = SG_PHONE_PATTERN.sub("[REDACTED_PHONE]", sanitized)
+    sanitized = LABELED_ADDRESS_PATTERN.sub("[REDACTED_ADDRESS]", sanitized)
+    sanitized = STREET_ADDRESS_PATTERN.sub("[REDACTED_ADDRESS]", sanitized)
+    return CARD_CANDIDATE_PATTERN.sub(
+        lambda match: "[REDACTED_CARD]" if _is_valid_card_number(match.group()) else match.group(),
+        sanitized,
+    )
+
 # Explicitly model the incoming frontend payload structure
 class FeedbackPayload(BaseModel):
     query: str
@@ -311,7 +355,8 @@ async def run_sequential_agents(state: AgentState):
         )
     else:
         state.final_report = draft
-        
+
+    state.final_report = sanitize_output(state.final_report)
     return state
 
 

@@ -2,9 +2,10 @@ import streamlit as st
 import httpx
 import asyncio
 import requests
-import uuid  # <-- Add this line right here
+import json, os, uuid
 
 BACKEND_URL = "http://127.0.0.1:8000"
+SESSION_FILE = "history_session.json"
 
 st.set_page_config(page_title="AuraWealth Command Center", page_icon="💼", layout="centered")
 
@@ -15,20 +16,43 @@ st.caption("Enterprise Async Core Running Natively on Python 3.11")
 if "current_role" not in st.session_state:
     st.session_state.current_role = "Client"  # Defaults safely to Client persona
 
+# --- CENTRAL ROLE MANAGEMENT ENGINE (Fixed Toggle) ---
+if "current_role" not in st.session_state:
+    st.session_state.current_role = "Client"
+
+# Direct callback function to update state instantly on a single click
+def on_role_change():
+    st.session_state.current_role = st.session_state.role_radio_widget
+
 st.sidebar.title("🎭 Identity Access Management")
-st.session_state.current_role = st.sidebar.radio(
+st.sidebar.radio(
     "Select Active Portal View:",
     ["Client", "Wealth Advisor"],
-    index=0 if st.session_state.current_role == "Client" else 1
+    key="role_radio_widget",
+    index=0 if st.session_state.current_role == "Client" else 1,
+    on_change=on_role_change
 )
 
 st.sidebar.markdown(f"Active Session Context: **`{st.session_state.current_role} Mode`**")
 
-# Initialize state-persistent memory array
+# --- INITIALIZE STATE-PERSISTENT SESSION MEMORY (Issue 10) ---
+if "session_token" not in st.session_state:
+    st.session_state.session_token = str(uuid.uuid4())
+
+# 1. Attempt to restore state from disk storage file first
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Welcome to AuraWealth. Use the Quick Actions below or ask a wealth planning question to begin."}
-    ]
+    if os.path.exists(SESSION_FILE):
+        try:
+            with open(SESSION_FILE, "r") as f:
+                st.session_state.messages = json.load(f)
+        except:
+            st.session_state.messages = []
+            
+    # Fallback to standard welcome message if disk file is missing or corrupt
+    if not st.session_state.messages:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Welcome to AuraWealth. Use the Quick Actions below or ask a wealth planning question to begin."}
+        ]
 
 if "active_agent_report" not in st.session_state:
     st.session_state.active_agent_report = None
@@ -38,6 +62,7 @@ if "queue_index" not in st.session_state:
 
 if "active_trigger" not in st.session_state:
     st.session_state.active_trigger = None
+
 
 # --- DYNAMIC INTERACTIVE QUICK ACTIONS ---
 st.markdown(f"### 🚀 Quick Actions ({st.session_state.current_role} Tier)")
@@ -99,6 +124,10 @@ if current_query:
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Core Engine connection failed: {str(e)}")
+
+    # 2. Immediately write current array status to disk to track state changes
+    with open(SESSION_FILE, "w") as f:
+        json.dump(st.session_state.messages, f, indent=4)
 
 # --- CONSOLIDATED FEEDBACK GENERATOR INJECTED IN WORKSPACE ---
 if len(st.session_state.messages) > 1 and st.session_state.messages[-1]["role"] == "assistant":

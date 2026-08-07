@@ -315,3 +315,28 @@ if st.sidebar.button("Run cached search"):
         st.sidebar.caption(f"TTL: {cache_data['ttl_seconds']} seconds")
     except Exception as error:
         st.sidebar.error(f"Cache check failed: {error}")
+
+# --- REDIS FIFO QUEUE VALIDATION (Issue #18) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("📬 Redis FIFO Queue Validation")
+if "demo_queue_jobs" not in st.session_state:
+    st.session_state.demo_queue_jobs = []
+
+if st.sidebar.button("Queue 3 ordered demo jobs"):
+    try:
+        queue_response = httpx.post(f"{BACKEND_URL}/api/v1/queue/demo-batch", timeout=10.0)
+        queue_response.raise_for_status()
+        st.session_state.demo_queue_jobs = queue_response.json()["jobs"]
+        st.sidebar.success("Queued jobs 1 → 2 → 3 for one worker.")
+    except Exception as error:
+        st.sidebar.error(f"Queue submission failed: {error}")
+
+if st.session_state.demo_queue_jobs and st.sidebar.button("Check queued job status"):
+    try:
+        for job in st.session_state.demo_queue_jobs:
+            job_response = httpx.get(f"{BACKEND_URL}/api/v1/queue/job/{job['job_id']}", timeout=10.0)
+            job_response.raise_for_status()
+            status = job_response.json()
+            st.sidebar.caption(f"#{status['submitted_order']} — {status['status']} ({status['progress']}%)")
+    except Exception as error:
+        st.sidebar.error(f"Queue status failed: {error}")

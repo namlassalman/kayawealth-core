@@ -8,7 +8,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
-from app.services.worker import execute_distributed_simulation
+from app.services.redis_queue import QueueUnavailable, RedisJobQueue
 
 app = FastAPI(
     title="AuraWealth Core API",
@@ -75,10 +75,17 @@ def load_environment_profile() -> dict:
 
 ENV_CONFIG = load_environment_profile()
 SEARCH_CACHE = SearchCache(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), ttl_seconds=60)
+JOB_QUEUE = RedisJobQueue(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
+
+
+@app.on_event("startup")
+async def start_queue_worker():
+    await JOB_QUEUE.start()
 
 
 @app.on_event("shutdown")
 async def close_cache_connection():
+    await JOB_QUEUE.stop()
     await SEARCH_CACHE.close()
 
 # --- INGRESS PROMPT-HACKING GUARDRAILS (Issue #12) ---
@@ -474,24 +481,36 @@ async def cached_search(query: str):
         "ttl_seconds": 60,
     }
 
-# In-memory global task cluster storage
-queue_state_store: dict[str, dict] = {}
-
 @app.post("/api/v1/queue/job", status_code=202)
-async def push_to_message_queue(payload: dict, background_tasks: BackgroundTasks):
-    job_id = f"job_{uuid.uuid4().hex[:8]}"
-    queue_state_store[job_id] = {"status": "queued", "progress": 0}
-    
-    # Offload execution asynchronously to our decoupled compute worker service
-    background_tasks.add_task(execute_distributed_simulation, job_id, payload, queue_state_store)
-    
-    return {"job_id": job_id, "status": "queued", "message": "Dispatched to background message queue queue."}
+async def push_to_message_queue(payload: SimulationRequest):
+    try:
+        job = (await JOB_QUEUE.enqueue_batch([payload.model_dump()]))[0]
+    except QueueUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {**job, "message": "Queued for serialized Redis worker processing."}
+
+
+@app.post("/api/v1/queue/demo-batch", status_code=202)
+async def queue_demo_batch():
+    demo_jobs = [
+        {"portfolio_name": f"Demo Portfolio {sequence}", "initial_capital": 10000.0 * sequence, "horizon_years": 5}
+        for sequence in range(1, 4)
+    ]
+    try:
+        jobs = await JOB_QUEUE.enqueue_batch(demo_jobs)
+    except QueueUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return {"jobs": jobs, "worker_mode": "single_consumer_fifo"}
 
 @app.get("/api/v1/queue/job/{job_id}")
 async def get_queue_job_status(job_id: str):
-    if job_id not in queue_state_store:
+    try:
+        job = await JOB_QUEUE.get_job(job_id)
+    except QueueUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if job is None:
         raise HTTPException(status_code=404, detail="Job token not found in cluster queue")
-    return queue_state_store[job_id]
+    return job
 
 class FeedbackPayload(BaseModel):
     query: str

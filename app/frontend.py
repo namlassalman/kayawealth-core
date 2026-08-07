@@ -341,3 +341,22 @@ if st.session_state.demo_queue_jobs and st.sidebar.button("Check queued job stat
             st.sidebar.caption(f"#{status['submitted_order']} — {status['status']} ({status['progress']}%)")
     except Exception as error:
         st.sidebar.error(f"Queue status failed: {error}")
+
+# --- HIERARCHICAL ORCHESTRATOR DEMO (Issue #7) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("👑 Hierarchical Agent Demo")
+hierarchical_query = st.sidebar.text_input("Manager request", value="Review my retirement portfolio risk.", key="hierarchical_query")
+if st.sidebar.button("Run manager-led workflow"):
+    try:
+        hierarchical_response = httpx.post(
+            f"{BACKEND_URL}/api/v1/agents/hierarchical",
+            json={"user_query": hierarchical_query},
+            timeout=10.0,
+        )
+        hierarchical_response.raise_for_status()
+        hierarchical_result = hierarchical_response.json()
+        st.sidebar.caption(f"Manager route: {hierarchical_result['manager_route']}")
+        st.sidebar.caption(f"Delegated to: {', '.join(hierarchical_result['delegated_agents'])}")
+        st.sidebar.markdown(hierarchical_result["final_report"])
+    except Exception as error:
+        st.sidebar.error(f"Hierarchical workflow failed: {error}")

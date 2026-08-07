@@ -8,6 +8,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
+from app.services.hierarchical import run_hierarchical_workflow
 from app.services.orchestration import detect_advisor_conflict, select_workflow
 from app.services.redis_queue import QueueUnavailable, RedisJobQueue
 
@@ -440,6 +441,14 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
     response = agent_result.model_dump()
     response.update({"route": workflow, "conflict_flag": False, "feedback_records_considered": len(critiques)})
     return response
+
+
+@app.post("/api/v1/agents/hierarchical")
+async def run_hierarchical_agents(payload: OrchestrationRequest):
+    enforce_prompt_guardrails(payload.user_query)
+    result = await run_hierarchical_workflow(payload.user_query)
+    result["final_report"] = sanitize_output(result["final_report"])
+    return result
 
 
 

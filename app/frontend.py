@@ -5,7 +5,7 @@ import requests
 import json, os, uuid
 
 BACKEND_URL = "http://127.0.0.1:8000"
-SESSION_FILE = "history_session.json"
+SESSION_FILE = os.getenv("AURAWEALTH_SESSION_FILE", "history_session.json")
 
 st.set_page_config(page_title="AuraWealth Command Center", page_icon="💼", layout="centered")
 
@@ -41,6 +41,7 @@ if "session_token" not in st.session_state:
 
 # 1. Attempt to restore state from disk storage file first
 if "messages" not in st.session_state:
+    st.session_state.messages = []
     if os.path.exists(SESSION_FILE):
         try:
             with open(SESSION_FILE, "r") as f:
@@ -53,6 +54,15 @@ if "messages" not in st.session_state:
         st.session_state.messages = [
             {"role": "assistant", "content": "Welcome to AuraWealth. Use the Quick Actions below or ask a wealth planning question to begin."}
         ]
+
+def persist_messages() -> None:
+    """Synchronize the active chat history before Streamlit reruns."""
+    with open(SESSION_FILE, "w") as f:
+        json.dump(st.session_state.messages, f, indent=4)
+
+def append_message(role: str, content: str) -> None:
+    st.session_state.messages.append({"role": role, "content": content})
+    persist_messages()
 
 if "active_agent_report" not in st.session_state:
     st.session_state.active_agent_report = None
@@ -104,7 +114,7 @@ elif user_input:
 # --- PROCESS ACTIVE INCOMING INQUIRIES ---
 if current_query:
     st.chat_message("user").write(current_query)
-    st.session_state.messages.append({"role": "user", "content": current_query})
+    append_message("user", current_query)
     
     complex_triggers = ["simulate", "agent", "portfolio", "rebalance", "optimization"]
     is_complex = any(word in current_query.lower() for word in complex_triggers)
@@ -119,15 +129,11 @@ if current_query:
             report_payload = res.json()
             reply_text = report_payload.get("final_report", "Error generating response.")
             
-            st.session_state.messages.append({"role": "assistant", "content": reply_text})
+            append_message("assistant", reply_text)
             st.session_state.active_agent_report = report_payload
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Core Engine connection failed: {str(e)}")
-
-    # 2. Immediately write current array status to disk to track state changes
-    with open(SESSION_FILE, "w") as f:
-        json.dump(st.session_state.messages, f, indent=4)
 
 # --- CONSOLIDATED FEEDBACK GENERATOR INJECTED IN WORKSPACE ---
 if len(st.session_state.messages) > 1 and st.session_state.messages[-1]["role"] == "assistant":
@@ -206,7 +212,7 @@ if st.session_state.current_role == "Wealth Advisor" and st.session_state.active
             
             if col1.button("✅ Approve Report to Client"):
                 st.success(f"Dispatched {item['ticket_id']} straight to client profile.")
-                st.session_state.messages.append({"role": "assistant", "content": item["final_report"]})
+                append_message("assistant", item["final_report"])
                 st.session_state.queue_index += 1
                 st.rerun()
                 
@@ -218,7 +224,7 @@ if st.session_state.current_role == "Wealth Advisor" and st.session_state.active
                         timeout=5.0
                     )
                     st.sidebar.success(f"Critique for {item['ticket_id']} successfully synchronized to disk!")
-                    st.session_state.messages.append({"role": "assistant", "content": f"🔄 Advisor Feedback Logged for {item['ticket_id']}: {critique_notes}"})
+                    append_message("assistant", f"🔄 Advisor Feedback Logged for {item['ticket_id']}: {critique_notes}")
                     st.session_state.queue_index += 1
                     st.rerun()
                 else:

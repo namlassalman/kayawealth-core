@@ -1,4 +1,5 @@
 import streamlit as st
+import altair as alt
 import httpx
 import asyncio
 import requests
@@ -339,6 +340,44 @@ if st.sidebar.button("Run cached search"):
         st.sidebar.caption(f"TTL: {cache_data['ttl_seconds']} seconds")
     except Exception as error:
         st.sidebar.error(f"Cache check failed: {error}")
+
+# --- RAG CLUSTER MAP (Issue #6) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🗺️ RAG Semantic Cluster Map")
+if st.sidebar.checkbox("Show 1,000 document clusters", key="show_cluster_map"):
+    try:
+        cluster_response = httpx.get(f"{BACKEND_URL}/api/v1/rag/clusters", timeout=10.0)
+        cluster_response.raise_for_status()
+        cluster_data = cluster_response.json()
+        st.sidebar.caption(f"{cluster_data['total_points']} chunks grouped by thematic metadata")
+        category_centers = {
+            category: (
+                sum(point["cluster_x"] for point in cluster_data["points"] if point["category"] == category),
+                sum(point["cluster_y"] for point in cluster_data["points"] if point["category"] == category),
+            )
+            for category in {point["category"] for point in cluster_data["points"]}
+        }
+        categories = sorted(category_centers, key=lambda category: (category_centers[category][0], -category_centers[category][1]))
+        category_colors = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
+        cluster_chart = alt.Chart(alt.Data(values=cluster_data["points"])).mark_circle(size=24, opacity=0.65).encode(
+            x=alt.X("cluster_x:Q", title="Cluster X", axis=alt.Axis(labelFontSize=9)),
+            y=alt.Y("cluster_y:Q", title="Cluster Y", axis=alt.Axis(labelFontSize=9)),
+            color=alt.Color(
+                "category:N",
+                legend=None,
+                scale=alt.Scale(domain=categories, range=category_colors),
+            ),
+            tooltip=["id:N", "category:N"],
+        ).properties(width=250, height=250)
+        st.sidebar.altair_chart(cluster_chart, use_container_width=False)
+        for category, color in zip(categories, category_colors):
+            st.sidebar.markdown(
+                f"<span style='color:{color}; font-size:1.6rem; vertical-align:middle'>●</span> "
+                f"<span style='vertical-align:middle'>{category}</span>",
+                unsafe_allow_html=True,
+            )
+    except Exception as error:
+        st.sidebar.error(f"Cluster map failed: {error}")
 
 # --- REDIS FIFO QUEUE VALIDATION (Issue #18) ---
 st.sidebar.markdown("---")

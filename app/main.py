@@ -31,6 +31,14 @@ KB_PATH = os.path.join(os.path.dirname(__file__), "kb_chunks.json")
 with open(KB_PATH, "r") as f:
     knowledge_base: list[dict] = json.load(f)
 
+CLUSTER_CENTERS = {
+    "tax_planning": (-4.0, 3.0), "risk_management": (-1.5, 3.0),
+    "portfolio_rebalancing": (1.5, 3.0), "fixed_income": (4.0, 3.0),
+    "estate_planning": (-4.0, -1.0), "alternative_assets": (-1.5, -1.0),
+    "liquidity_management": (1.5, -1.0), "sustainable_investing": (4.0, -1.0),
+    "regulatory_compliance": (-1.5, -5.0), "macro_economics": (1.5, -5.0),
+}
+
 # Simulated incoming enterprise advisory transaction queue
 INCOMING_ADVISOR_QUEUE = [
     {
@@ -279,6 +287,29 @@ async def keyword_search(query: str, category: str = None, year: int = None):
 async def semantic_search(query: str):
     results = _execute_semantic_filter(query)
     return {"results": results[:5], "total_matches_found": len(results)}
+
+
+@app.get("/api/v1/rag/clusters")
+async def get_rag_cluster_coordinates():
+    def coordinates(chunk: dict) -> tuple[float, float]:
+        if "cluster_x" in chunk and "cluster_y" in chunk:
+            return chunk["cluster_x"], chunk["cluster_y"]
+        center_x, center_y = CLUSTER_CENTERS[chunk["category"]]
+        index = chunk["chunk_index"]
+        return round(center_x + ((index % 10) - 4.5) * 0.12, 2), round(center_y + ((index // 10) - 4.5) * 0.12, 2)
+
+    return {
+        "points": [
+            {
+                "id": chunk["id"],
+                "category": chunk["category"],
+                "cluster_x": coordinates(chunk)[0],
+                "cluster_y": coordinates(chunk)[1],
+            }
+            for chunk in knowledge_base
+        ],
+        "total_points": len(knowledge_base),
+    }
 
 @app.get("/api/v1/search/hybrid")
 async def hybrid_search(query: str, category: str = None, year: int = None):

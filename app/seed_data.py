@@ -17,6 +17,18 @@ def generate_1000_chunks():
         ("regulatory_compliance", "Anti-Money Laundering AML and Financial Conduct Authority Standards"),
         ("macro_economics", "Inflation-Hedging Asset Classes and Global Central Bank Interest Dynamics")
     ]
+    cluster_centers = {
+        "tax_planning": (-4.0, 3.0),
+        "risk_management": (-1.5, 3.0),
+        "portfolio_rebalancing": (1.5, 3.0),
+        "fixed_income": (4.0, 3.0),
+        "estate_planning": (-4.0, -1.0),
+        "alternative_assets": (-1.5, -1.0),
+        "liquidity_management": (1.5, -1.0),
+        "sustainable_investing": (4.0, -1.0),
+        "regulatory_compliance": (-1.5, -5.0),
+        "macro_economics": (1.5, -5.0),
+    }
     
     chunks_corpus = []
     chunk_counter = 0
@@ -27,6 +39,7 @@ def generate_1000_chunks():
     for doc_id, (category, title) in enumerate(doc_topics, 1):
         for i in range(chunks_per_doc):
             chunk_id = f"doc_{doc_id}_chunk_{i}"
+            center_x, center_y = cluster_centers[category]
             
             # Simple algorithmic variance to simulate realistic data paragraphs
             text_content = (
@@ -43,7 +56,9 @@ def generate_1000_chunks():
                 "category": category,
                 "text": text_content,
                 "chunk_index": i,
-                "recency_year": 2024 if i % 2 == 0 else 2026 # For custom reranking later!
+                "recency_year": 2024 if i % 2 == 0 else 2026, # For custom reranking later!
+                "cluster_x": round(center_x + ((i % 10) - 4.5) * 0.12, 2),
+                "cluster_y": round(center_y + ((i // 10) - 4.5) * 0.12, 2),
             }
             chunks_corpus.append(chunk_entry)
             chunk_counter += 1

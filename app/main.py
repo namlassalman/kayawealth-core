@@ -215,12 +215,30 @@ class AgentState(BaseModel):
     intake_data: str = ""
     risk_assessment: str = ""
     final_report: str = ""
+    confidence_score: float = 0.0
+    critic_verdict: str = ""
+    fallback_used: bool = False
+
+
+def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
+    """Apply deterministic groundedness and completeness checks to an agent draft."""
+    required_sections = ["Client Inquiry", "Intake Diagnostics", "Risk Assessment", "Next Step"]
+    missing_sections = [section for section in required_sections if section not in draft]
+    unsupported_claims = [phrase for phrase in ("guaranteed return", "risk-free", "will outperform") if phrase in draft.lower()]
+
+    deductions = 0.2 * len(missing_sections) + 0.4 * len(unsupported_claims)
+    if "noting stuff" in feedback_context.lower() and "Next Step" not in draft:
+        deductions += 0.2
+
+    confidence = max(0.0, round(1.0 - deductions, 2))
+    if confidence < 0.80:
+        reasons = missing_sections + (["unsupported financial claim"] if unsupported_claims else [])
+        return confidence, f"FAIL: Draft needs revision ({', '.join(reasons)})."
+    return confidence, "PASS: Draft contains the required advisory context and no unsupported guarantee language."
 
 @app.post("/api/v1/agents/sequential")
 async def run_sequential_agents(state: AgentState):
     feedback_context = ""
-    critic_verdict = "PASS"
-    confidence_score = 1.0
     
     # 1. READ DISK CRITIQUES TO INJECT LEARNING LOOPS (Issue 9)
     if os.path.exists(FEEDBACK_FILE):
@@ -241,17 +259,23 @@ async def run_sequential_agents(state: AgentState):
     await asyncio.sleep(0.1)
     state.risk_assessment = "Risk thresholds verified against regional benchmarks. Parameters: Stable."
 
-    # 2. EVALUATE CRITIC FUNCTION AND ASSIGN CONFIDENCE (Issue 8)
-    # Check if the user is frustrated or if past rejections are being ignored
-    user_query_lower = state.user_query.lower()
-    is_frustrated = any(w in user_query_lower for w in ["boring", "not working", "repeat", "purpose", "hello", "hi"])
-    
-    if is_frustrated or "noting stuff" in feedback_context.lower():
-        critic_verdict = "FAIL: Response contains low engagement or repetitive generic text."
-        confidence_score = 0.45  # Force fallback logic (< 80%)
-    
-    # 3. FALLBACK REROUTING & REWRITE MATRIX (Issue 8 & 9)
-    if confidence_score < 0.80:
+    # 2. GENERATE A DRAFT BEFORE SELF-REVIEW (Issue 8)
+    simple_greeting = state.user_query.lower().strip() in {"hi", "hello", "hey"}
+    if simple_greeting:
+        draft = "Hello from AuraWealth."
+    else:
+        draft = (
+            f"### 💼 AuraWealth Executive Advisory Report\n\n"
+            f"* **Client Inquiry:** '{state.user_query}'\n"
+            f"* **Intake Diagnostics:** {state.intake_data}\n"
+            f"* **Risk Assessment:** {state.risk_assessment}\n"
+            f"* **Next Step:** Confirm your planning objective before an advisor reviews any portfolio action."
+        )
+
+    # 3. CRITIC REVIEW AND FALLBACK REROUTING
+    state.confidence_score, state.critic_verdict = review_draft(draft, feedback_context)
+    if state.confidence_score < 0.80:
+        state.fallback_used = True
         # Self-correction rewrite triggered dynamically by past poor feedback
         state.final_report = (
             f"### 🎯 AuraWealth Smart Advisory Engine\n\n"
@@ -263,13 +287,7 @@ async def run_sequential_agents(state: AgentState):
             f"**💡 Let's get the conversation moving:** Based on your current profile, would you like to run a forward-looking simulation on your portfolio value, or should we evaluate your asset exposure limits against macroeconomic inflation models?"
         )
     else:
-        # Default standard execution track
-        state.final_report = (
-            f"### 💼 AuraWealth Executive Advisory Report\n\n"
-            f"* **Client Inquiry:** '{state.user_query}'\n"
-            f"* **Intake Diagnostics:** {state.intake_data}\n"
-            f"* **Recommendation:** Asset parameters match standard allocations. Proceeding with logging transaction signatures."
-        )
+        state.final_report = draft
         
     return state
 
@@ -450,4 +468,3 @@ async def get_next_queue_item(current_index: int = 0, fallback_query: str = "run
     if current_index >= len(INCOMING_ADVISOR_QUEUE):
         return {"status": "empty", "message": "All pending advisor review queues have been successfully processed."}
     return {"status": "active", "item": INCOMING_ADVISOR_QUEUE[current_index]}
-

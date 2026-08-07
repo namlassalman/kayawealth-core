@@ -2,7 +2,7 @@ import streamlit as st
 import httpx
 import asyncio
 import requests
-import json, os, uuid
+import json, os, time, uuid
 
 BACKEND_URL = "http://127.0.0.1:8000"
 SESSION_FILE = os.getenv("AURAWEALTH_SESSION_FILE", "history_session.json")
@@ -63,6 +63,30 @@ def persist_messages() -> None:
 def append_message(role: str, content: str) -> None:
     st.session_state.messages.append({"role": role, "content": content})
     persist_messages()
+
+def record_response_feedback(rating: str, critique: str = "") -> None:
+    """Persist a rating with the exact client prompt and assistant response it evaluates."""
+    logs = []
+    if os.path.exists("feedback_logs.json"):
+        try:
+            with open("feedback_logs.json", "r") as f:
+                logs = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logs = []
+
+    last_user_prompt = next((m["content"] for m in reversed(st.session_state.messages) if m["role"] == "user"), "Conversational Query")
+    last_response = next((m["content"] for m in reversed(st.session_state.messages) if m["role"] == "assistant"), "")
+    logs.append({
+        "event_type": "response_rating",
+        "rating": rating,
+        "user_query": last_user_prompt,
+        "assistant_response": last_response,
+        "advisor_critique": critique,
+        "session_token": st.session_state.session_token,
+        "timestamp": time.time(),
+    })
+    with open("feedback_logs.json", "w") as f:
+        json.dump(logs, f, indent=4)
 
 if "active_agent_report" not in st.session_state:
     st.session_state.active_agent_report = None
@@ -145,6 +169,7 @@ if len(st.session_state.messages) > 1 and st.session_state.messages[-1]["role"] 
     c1, c2, _ = st.columns(3)
     
     if c1.button("👍", key="global_thumb_up"):
+        record_response_feedback("up")
         st.sidebar.success("Feedback saved!")
         st.session_state.show_critique_box = False
         
@@ -152,35 +177,11 @@ if len(st.session_state.messages) > 1 and st.session_state.messages[-1]["role"] 
         st.session_state.show_critique_box = True
 
     if st.session_state.show_critique_box:
-        critique_input = st.text_input("What went wrong with this response?", key="critique_text_input")
-        if critique_input:
-            import json, os, time
-            target_file = "feedback_logs.json"
-            logs = []
-            
-            if os.path.exists(target_file):
-                try:
-                    with open(target_file, "r") as f:
-                        logs = json.load(f)
-                except:
-                    pass
-                    
-            # Capture the last user query accurately from history array
-            last_user_prompt = "Conversational Query"
-            for m in reversed(st.session_state.messages):
-                if m["role"] == "user":
-                    last_user_prompt = m["content"]
-                    break
-                    
-            logs.append({
-                "user_query": last_user_prompt, 
-                "advisor_critique": critique_input, 
-                "timestamp": str(time.time())
-            })
-            
-            with open(target_file, "w") as f:
-                json.dump(logs, f, indent=4)
-                
+        with st.form("response_critique_form"):
+            critique_input = st.text_input("What went wrong with this response?")
+            submitted = st.form_submit_button("Save feedback")
+        if submitted and critique_input.strip():
+            record_response_feedback("down", critique_input.strip())
             st.sidebar.warning("Critique saved to disk!")
             st.session_state.show_critique_box = False
             st.rerun()

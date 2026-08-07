@@ -3,6 +3,7 @@ import uuid
 import os
 import json
 import time  # Properly anchored at the top of the file
+import re
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.worker import execute_distributed_simulation
@@ -71,6 +72,22 @@ def load_environment_profile() -> dict:
     return env_profile
 
 ENV_CONFIG = load_environment_profile()
+
+# --- INGRESS PROMPT-HACKING GUARDRAILS (Issue #12) ---
+PROMPT_INJECTION_PATTERNS = (
+    r"\bignore\s+(?:all\s+)?(?:previous|prior)\s+instructions?\b",
+    r"\b(?:disregard|override|forget)\s+(?:all\s+)?(?:previous|prior)\s+(?:instructions?|rules?)\b",
+    r"\b(?:reveal|show|print)\s+(?:your|the)\s+(?:system|developer)\s+(?:prompt|instructions?)\b",
+    r"\b(?:system\s+prompt|developer\s+message)\b",
+)
+
+def enforce_prompt_guardrails(text: str) -> None:
+    """Reject known instruction-override patterns before agent execution."""
+    if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in PROMPT_INJECTION_PATTERNS):
+        raise HTTPException(
+            status_code=400,
+            detail="Security policy blocked this request because it contains an instruction-override pattern.",
+        )
 
 # Explicitly model the incoming frontend payload structure
 class FeedbackPayload(BaseModel):
@@ -238,6 +255,7 @@ def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
 
 @app.post("/api/v1/agents/sequential")
 async def run_sequential_agents(state: AgentState):
+    enforce_prompt_guardrails(state.user_query)
     feedback_context = ""
     
     # 1. READ DISK CRITIQUES TO INJECT LEARNING LOOPS (Issue 9)
@@ -247,7 +265,12 @@ async def run_sequential_agents(state: AgentState):
                 logs = json.load(f)
             if logs:
                 # Compile all historic human rejections to guide self-correction
-                all_critiques = [l["advisor_critique"] for l in logs if "advisor_critique" in l]
+                all_critiques = [
+                    l["advisor_critique"]
+                    for l in logs
+                    if "advisor_critique" in l
+                    and not any(re.search(pattern, l["advisor_critique"], flags=re.IGNORECASE) for pattern in PROMPT_INJECTION_PATTERNS)
+                ]
                 if all_critiques:
                     feedback_context = " | ".join(all_critiques[-3:]) # Last 3 critiques
         except Exception:

@@ -150,8 +150,13 @@ if current_query:
                 json={"user_query": current_query}, 
                 timeout=10.0
             )
-            report_payload = res.json()
-            reply_text = report_payload.get("final_report", "Error generating response.")
+            if res.status_code == 400:
+                reply_text = f"🛡️ {res.json().get('detail', 'Security policy blocked this request.')}"
+                report_payload = {"final_report": reply_text, "guardrail_blocked": True}
+            else:
+                res.raise_for_status()
+                report_payload = res.json()
+                reply_text = report_payload.get("final_report", "Error generating response.")
             
             append_message("assistant", reply_text)
             st.session_state.active_agent_report = report_payload

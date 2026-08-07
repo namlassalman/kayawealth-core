@@ -4,6 +4,7 @@ import os
 import json
 import time  # Properly anchored at the top of the file
 import re
+from datetime import datetime, timezone
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
@@ -314,10 +315,21 @@ class AgentState(BaseModel):
     confidence_score: float = 0.0
     critic_verdict: str = ""
     fallback_used: bool = False
+    operational_trace: list[dict[str, str]] = []
 
 
 class OrchestrationRequest(BaseModel):
     user_query: str
+
+
+def add_operational_trace(state: AgentState, node: str, outcome: str, details: str) -> None:
+    """Record an auditable operational event without recording private reasoning."""
+    state.operational_trace.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "node": node,
+        "outcome": outcome,
+        "details": details,
+    })
 
 
 def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
@@ -340,6 +352,7 @@ def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
 async def run_sequential_agents(state: AgentState):
     enforce_prompt_guardrails(state.user_query)
     feedback_context = ""
+    add_operational_trace(state, "ingress", "accepted", "Prompt guardrails passed.")
     
     # 1. READ DISK CRITIQUES TO INJECT LEARNING LOOPS (Issue 9)
     if os.path.exists(FEEDBACK_FILE):
@@ -361,9 +374,11 @@ async def run_sequential_agents(state: AgentState):
 
     await asyncio.sleep(0.1)
     state.intake_data = "Client profile loaded. Target Track: Consumer Wealth Optimization."
+    add_operational_trace(state, "intake_agent", "completed", "Client objective normalized for advisory workflow.")
     
     await asyncio.sleep(0.1)
     state.risk_assessment = "Risk thresholds verified against regional benchmarks. Parameters: Stable."
+    add_operational_trace(state, "risk_agent", "completed", "Suitability threshold review completed.")
 
     # 2. GENERATE A DRAFT BEFORE SELF-REVIEW (Issue 8)
     simple_greeting = state.user_query.lower().strip() in {"hi", "hello", "hey"}
@@ -380,6 +395,12 @@ async def run_sequential_agents(state: AgentState):
 
     # 3. CRITIC REVIEW AND FALLBACK REROUTING
     state.confidence_score, state.critic_verdict = review_draft(draft, feedback_context)
+    add_operational_trace(
+        state,
+        "critic",
+        "passed" if state.confidence_score >= 0.80 else "fallback_required",
+        f"Confidence score: {state.confidence_score:.2f}.",
+    )
     if state.confidence_score < 0.80:
         state.fallback_used = True
         # Self-correction rewrite triggered dynamically by past poor feedback
@@ -396,6 +417,7 @@ async def run_sequential_agents(state: AgentState):
         state.final_report = draft
 
     state.final_report = sanitize_output(state.final_report)
+    add_operational_trace(state, "report_agent", "completed", "Output sanitized before frontend delivery.")
     return state
 
 
@@ -424,6 +446,12 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
             "route": workflow,
             "conflict_flag": True,
             "conflict_reason": conflict,
+            "operational_trace": [{
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "node": "intent_arbiter",
+                "outcome": "blocked",
+                "details": "Advisor policy conflict requires human review.",
+            }],
         }
 
     if workflow == "rag_search":
@@ -435,9 +463,16 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
             "route": workflow,
             "conflict_flag": False,
             "sources_used": len(unique_results),
+            "operational_trace": [{
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "node": "intent_arbiter",
+                "outcome": "routed_to_rag",
+                "details": f"Retrieved {len(unique_results)} governed sources.",
+            }],
         }
 
     agent_result = await run_sequential_agents(AgentState(user_query=payload.user_query))
+    add_operational_trace(agent_result, "intent_arbiter", "routed_to_agents", f"Selected workflow: {workflow}.")
     response = agent_result.model_dump()
     response.update({"route": workflow, "conflict_flag": False, "feedback_records_considered": len(critiques)})
     return response
@@ -448,6 +483,12 @@ async def run_hierarchical_agents(payload: OrchestrationRequest):
     enforce_prompt_guardrails(payload.user_query)
     result = await run_hierarchical_workflow(payload.user_query)
     result["final_report"] = sanitize_output(result["final_report"])
+    result["operational_trace"] = [{
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "node": "manager_orchestrator",
+        "outcome": "delegated_and_consolidated",
+        "details": f"Manager route: {result['manager_route']}; delegates: {', '.join(result['delegated_agents'])}.",
+    }]
     return result
 
 

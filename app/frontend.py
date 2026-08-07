@@ -88,6 +88,11 @@ def record_response_feedback(rating: str, critique: str = "") -> None:
     with open("feedback_logs.json", "w") as f:
         json.dump(logs, f, indent=4)
 
+def render_operational_trace(events: list[dict]) -> None:
+    for event in events:
+        st.caption(f"{event['timestamp']} · {event['node']} · {event['outcome']}")
+        st.write(event['details'])
+
 if "active_agent_report" not in st.session_state:
     st.session_state.active_agent_report = None
 
@@ -119,6 +124,10 @@ st.markdown("---")
 # Render historic message threads natively across top-to-bottom re-runs
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
+
+if st.session_state.active_agent_report and st.session_state.active_agent_report.get("operational_trace"):
+    with st.expander("🔍 Show Multi-Agent Operational Trace Logs"):
+        render_operational_trace(st.session_state.active_agent_report["operational_trace"])
 
 # Capture live user conversational inputs
 user_input = st.chat_input("Ask AuraWealth...")
@@ -208,8 +217,12 @@ if st.session_state.current_role == "Wealth Advisor" and st.session_state.active
             st.warning(f"⚠️ **System State: PENDING_REVIEW ({item['ticket_id']})** — Verification mandatory.")
             
             with st.expander("🔍 Show Multi-Agent Operational Trace Logs"):
-                st.text(item["intake_data"])
-                st.text(item["risk_assessment"])
+                trace_events = st.session_state.active_agent_report.get("operational_trace", [])
+                if trace_events:
+                    render_operational_trace(trace_events)
+                else:
+                    st.text(item["intake_data"])
+                    st.text(item["risk_assessment"])
             
             st.markdown("### 📝 Advisor Review Panel")
             st.markdown(item["final_report"])

@@ -274,3 +274,30 @@ if search_query:
                 st.sidebar.error(f"Backend search failed with status: {response.status_code}")
     except Exception as e:
         st.sidebar.error(f"Could not connect to backend: {str(e)}")
+
+# --- GOVERNANCE EVALUATION SANDBOX (Issue #11) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚖️ Golden-Set Groundedness Eval")
+golden_cases = {
+    "retirement_risk": "Review my retirement portfolio risk.",
+    "tax_planning": "Help me plan for tax-efficient investing.",
+    "rebalancing": "Should I rebalance my portfolio?",
+    "liquidity": "Assess liquidity for my upcoming expense.",
+    "estate": "What should I consider for estate planning?",
+}
+selected_case = st.sidebar.selectbox("Golden test case", list(golden_cases), format_func=lambda case_id: golden_cases[case_id])
+
+if st.sidebar.button("Evaluate latest assistant response"):
+    latest_response = next((message["content"] for message in reversed(st.session_state.messages) if message["role"] == "assistant"), "")
+    try:
+        evaluation_response = httpx.post(
+            f"{BACKEND_URL}/api/v1/evaluations/groundedness",
+            json={"case_id": selected_case, "response": latest_response},
+            timeout=10.0,
+        )
+        evaluation_response.raise_for_status()
+        evaluation = evaluation_response.json()
+        st.sidebar.metric("Groundedness", f"{evaluation['groundedness_score']}%")
+        st.sidebar.caption(f"{evaluation['verdict']} — Missing: {', '.join(evaluation['missing_signals']) or 'None'}")
+    except Exception as error:
+        st.sidebar.error(f"Evaluation failed: {error}")

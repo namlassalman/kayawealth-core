@@ -6,6 +6,7 @@ import time  # Properly anchored at the top of the file
 import re
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
+from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.worker import execute_distributed_simulation
 
 app = FastAPI(
@@ -137,6 +138,24 @@ def sanitize_output(text: str) -> str:
 class FeedbackPayload(BaseModel):
     query: str
     critique: str
+
+
+class EvaluationRequest(BaseModel):
+    case_id: str
+    response: str
+
+
+@app.get("/api/v1/evaluations/golden-set")
+async def get_golden_test_set():
+    return [{"case_id": case.case_id, "question": case.question, "ideal_answer": case.ideal_answer} for case in GOLDEN_TEST_SET]
+
+
+@app.post("/api/v1/evaluations/groundedness")
+async def score_groundedness(payload: EvaluationRequest):
+    try:
+        return evaluate_response(payload.case_id, payload.response)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 @app.post("/api/v1/feedback/log")
 async def log_client_feedback(payload: FeedbackPayload):

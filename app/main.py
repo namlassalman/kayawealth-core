@@ -14,6 +14,8 @@ from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.hierarchical import run_hierarchical_workflow
 from app.services.orchestration import detect_advisor_conflict, select_workflow
 from app.services.redis_queue import QueueUnavailable, RedisJobQueue
+from app.services.search import SearchService
+from app.models import JobStatus, SimulationTask
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -38,18 +40,9 @@ IS_PRODUCTION = False  # Toggle to True for presentation mode or deployment conf
 # Force the file to save directly at the main project root folder level
 FEEDBACK_FILE = "feedback_logs.json"
 
-# Automatically load the 1,000 chunks into local server RAM on startup
+# Load the local RAG corpus through the dedicated search service.
 KB_PATH = os.path.join(os.path.dirname(__file__), "kb_chunks.json")
-with open(KB_PATH, "r") as f:
-    knowledge_base: list[dict] = json.load(f)
-
-CLUSTER_CENTERS = {
-    "tax_planning": (-4.0, 3.0), "risk_management": (-1.5, 3.0),
-    "portfolio_rebalancing": (1.5, 3.0), "fixed_income": (4.0, 3.0),
-    "estate_planning": (-4.0, -1.0), "alternative_assets": (-1.5, -1.0),
-    "liquidity_management": (1.5, -1.0), "sustainable_investing": (4.0, -1.0),
-    "regulatory_compliance": (-1.5, -5.0), "macro_economics": (1.5, -5.0),
-}
+SEARCH_SERVICE = SearchService(KB_PATH)
 
 # Simulated incoming enterprise advisory transaction queue
 INCOMING_ADVISOR_QUEUE = [
@@ -77,7 +70,7 @@ INCOMING_ADVISOR_QUEUE = [
 ]
 
 # Thread-safe in-memory task database matrix
-tasks_db: dict[str, dict] = {}
+tasks_db: dict[str, SimulationTask] = {}
 
 # --- ENTERPRISE ENVIRONMENT PIPELINE CONFIGURATION (Issue #27) ---
 def load_environment_profile() -> dict:
@@ -219,41 +212,15 @@ class SimulationRequest(BaseModel):
     initial_capital: float
     horizon_years: int
 
-# --- PURE PYTHON SEARCH FUNCTIONS (Prevents async routing crashes) ---
-
-def _execute_keyword_filter(query: str, category: str = None, year: int = None) -> list[dict]:
-    if not query:
-        return []
-    results = []
-    query_words = query.lower().split()
-    for chunk in knowledge_base:
-        matches_keyword = any(word in chunk["text"].lower() or word in chunk["document_title"].lower() for word in query_words)
-        matches_category = (category is None or category == "" or chunk["category"] == category)
-        matches_year = (year is None or chunk["recency_year"] == year)
-        if matches_keyword and matches_category and matches_year:
-            results.append(chunk)
-    return results
-
-def _execute_semantic_filter(query: str) -> list[dict]:
-    if not query:
-        return []
-    results = []
-    for chunk in knowledge_base:
-        if any(word in chunk["document_title"].lower() for word in query.lower().split()):
-            results.append(chunk)
-    return results
-
 # --- PORTFOLIO ASYNC WORKER TASK ---
 
 def calculate_heavy_simulation(task_id: str, initial_capital: float, horizon_years: int):
-    tasks_db[task_id]["status"] = "processing"
+    tasks_db[task_id].status = JobStatus.PROCESSING
     time.sleep(3) # Safe execution via top-declared import module
     projected_value = initial_capital * (1.08 ** horizon_years)
-    tasks_db[task_id].update({
-        "status": "completed",
-        "expected_return": round(projected_value, 2),
-        "processed_async": True
-    })
+    tasks_db[task_id].status = JobStatus.COMPLETED
+    tasks_db[task_id].expected_return = round(projected_value, 2)
+    tasks_db[task_id].processed_async = True
 
 
 # --- FASTAPI ROUTE HANDLERS ---
@@ -265,12 +232,7 @@ async def root():
 @app.post("/api/v1/simulate", status_code=202)
 async def run_portfolio_simulation(payload: SimulationRequest, background_tasks: BackgroundTasks):
     task_id = str(uuid.uuid4())
-    tasks_db[task_id] = {
-        "portfolio_name": payload.portfolio_name,
-        "status": "pending",
-        "expected_return": 0.0,
-        "processed_async": False
-    }
+    tasks_db[task_id] = SimulationTask(portfolio_name=payload.portfolio_name, status=JobStatus.PENDING)
     background_tasks.add_task(calculate_heavy_simulation, task_id, payload.initial_capital, payload.horizon_years)
     return {"task_id": task_id, "status": "accepted", "check_status_url": f"/api/v1/tasks/{task_id}"}
 
@@ -282,35 +244,21 @@ async def get_task_status(task_id: str):
 
 @app.get("/api/v1/search/keyword")
 async def keyword_search(query: str, category: str = None, year: int = None):
-    results = _execute_keyword_filter(query, category, year)
+    results = SEARCH_SERVICE.keyword_filter(query, category, year)
     return {"results": results[:5], "total_matches_found": len(results)}
 
 @app.get("/api/v1/search/semantic")
 async def semantic_search(query: str):
-    results = _execute_semantic_filter(query)
+    results = SEARCH_SERVICE.semantic_filter(query)
     return {"results": results[:5], "total_matches_found": len(results)}
 
 
 @app.get("/api/v1/rag/clusters")
 async def get_rag_cluster_coordinates():
-    def coordinates(chunk: dict) -> tuple[float, float]:
-        if "cluster_x" in chunk and "cluster_y" in chunk:
-            return chunk["cluster_x"], chunk["cluster_y"]
-        center_x, center_y = CLUSTER_CENTERS[chunk["category"]]
-        index = chunk["chunk_index"]
-        return round(center_x + ((index % 10) - 4.5) * 0.12, 2), round(center_y + ((index // 10) - 4.5) * 0.12, 2)
-
+    points = SEARCH_SERVICE.cluster_points()
     return {
-        "points": [
-            {
-                "id": chunk["id"],
-                "category": chunk["category"],
-                "cluster_x": coordinates(chunk)[0],
-                "cluster_y": coordinates(chunk)[1],
-            }
-            for chunk in knowledge_base
-        ],
-        "total_points": len(knowledge_base),
+        "points": points,
+        "total_points": len(points),
     }
 
 @app.get("/api/v1/search/hybrid")
@@ -318,27 +266,14 @@ async def hybrid_search(query: str, category: str = None, year: int = None):
     if not query:
         return {"results": [], "total_results": 0, "source_breakdown": {"keyword_pool_size": 0, "semantic_pool_size": 0}}
         
-    kw_chunks = _execute_keyword_filter(query, category, year)
-    sem_chunks = _execute_semantic_filter(query)
-    
-    combined_dict = {}
-    for chunk in kw_chunks:
-        combined_dict[chunk["id"]] = chunk
-        
-    for chunk in sem_chunks:
-        matches_category = (category is None or category == "" or chunk["category"] == category)
-        matches_year = (year is None or chunk["recency_year"] == year)
-        if matches_category and matches_year:
-            combined_dict[chunk["id"]] = chunk
-            
-    final_results = list(combined_dict.values())
+    search = SEARCH_SERVICE.hybrid_search(query, category, year)
     
     return {
-        "results": final_results[:5], 
-        "total_results": len(final_results),
+        "results": search["results"][:5],
+        "total_results": len(search["results"]),
         "source_breakdown": {
-            "keyword_pool_size": len(kw_chunks),
-            "semantic_pool_size": len(sem_chunks)
+            "keyword_pool_size": search["keyword_pool_size"],
+            "semantic_pool_size": search["semantic_pool_size"],
         }
     }
 
@@ -495,7 +430,7 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
         }
 
     if workflow == "rag_search":
-        results = _execute_keyword_filter(payload.user_query) + _execute_semantic_filter(payload.user_query)
+        results = SEARCH_SERVICE.keyword_filter(payload.user_query) + SEARCH_SERVICE.semantic_filter(payload.user_query)
         unique_results = list({result["id"]: result for result in results}.values())[:3]
         source_titles = "\n".join(f"* {result['document_title']} ({result['category']})" for result in unique_results)
         return {
@@ -546,22 +481,7 @@ async def run_hierarchical_agents(payload: OrchestrationRequest):
 @app.get("/api/v1/search/reranked")
 async def reranked_search(query: str, category: str = None, year: int = None):
     # 1. Fetch raw unranked results from your existing hybrid pool logic
-    raw_results = _execute_keyword_filter(query, category, year) + _execute_semantic_filter(query)
-    
-    # Deduplicate via dictionary
-    combined = {c["id"]: c for c in raw_results}
-    chunks = list(combined.values())
-    
-    # 2. Apply Custom Recency-Weighting Algorithm (+2 Points)
-    # 2026 documents get a massive priority boost over older 2024 metrics
-    for chunk in chunks:
-        base_score = 1.0
-        recency_multiplier = 1.5 if chunk["recency_year"] == 2026 else 1.0
-        chunk["rerank_score"] = round(base_score * recency_multiplier, 2)
-        
-    # Sort array completely based on the new custom score matrix
-    sorted_chunks = sorted(chunks, key=lambda x: x["rerank_score"], reverse=True)
-    return {"results": sorted_chunks[:5]}
+    return {"results": SEARCH_SERVICE.rerank(query, category, year)[:5]}
 
 @app.get("/api/v1/route")
 async def semantic_router(user_query: str):
@@ -620,7 +540,7 @@ async def cached_search(query: str):
             "ttl_seconds": 60,
         }
 
-    fresh_data = _execute_keyword_filter(query)
+    fresh_data = SEARCH_SERVICE.keyword_filter(query)
     backend = await SEARCH_CACHE.set(query, fresh_data[:2])
     return {
         "results": fresh_data[:2],

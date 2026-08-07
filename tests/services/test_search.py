@@ -6,6 +6,7 @@ def test_search_service_hybrid_deduplicates_and_reranks_recent_chunks():
     hybrid = service.hybrid_search("tax")
     assert hybrid["results"]
     assert len({chunk["id"] for chunk in hybrid["results"]}) == len(hybrid["results"])
+    assert hybrid["results"][0]["rerank_score"] == 1.5
 
     reranked = service.rerank("tax")
     assert reranked[0]["rerank_score"] == 1.5

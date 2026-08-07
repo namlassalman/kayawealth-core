@@ -16,9 +16,6 @@ SESSION_FILE = os.getenv("AURAWEALTH_SESSION_FILE", "history_session.json")
 
 st.set_page_config(page_title="AuraWealth Command Center", page_icon="💼", layout="centered")
 
-st.title("💼 AuraWealth Client Portal")
-st.caption("Enterprise Async Core Running Natively on Python 3.11")
-
 # --- CENTRAL ROLE MANAGEMENT ENGINE ---
 if "current_role" not in st.session_state:
     st.session_state.current_role = "Client"  # Defaults safely to Client persona
@@ -57,10 +54,29 @@ if "messages" not in st.session_state:
             st.session_state.messages = []
             
     # Fallback to standard welcome message if disk file is missing or corrupt
-    if not st.session_state.messages:
+if not st.session_state.messages:
         st.session_state.messages = [
-            {"role": "assistant", "content": "Welcome to AuraWealth. Use the Quick Actions below or ask a wealth planning question to begin."}
+            {
+                "role": "assistant",
+                "content": (
+                    "### Welcome to AuraWealth 👋\n\n"
+                    "I’m your **financial GPS**—here to help you turn life goals into practical next steps, "
+                    "understand investment risk, and involve an advisor when a portfolio decision needs review.\n\n"
+                    "What would you like your money to help you do?"
+                ),
+            }
         ]
+
+
+WELCOME_MESSAGE = {
+    "role": "assistant",
+    "content": (
+        "### Welcome to AuraWealth 👋\n\n"
+        "I’m your **financial GPS**—here to help you turn life goals into practical next steps, "
+        "understand investment risk, and involve an advisor when a portfolio decision needs review.\n\n"
+        "What would you like your money to help you do?"
+    ),
+}
 
 def persist_messages() -> None:
     """Synchronize the active chat history before Streamlit reruns."""
@@ -70,6 +86,22 @@ def persist_messages() -> None:
 def append_message(role: str, content: str) -> None:
     st.session_state.messages.append({"role": role, "content": content})
     persist_messages()
+
+
+header_column, reset_column = st.columns([0.8, 0.2])
+with header_column:
+    st.title("💼 AuraWealth — Your Financial GPS")
+    st.caption("Explore your goals, understand your financial picture, and collaborate with an advisor when decisions need review.")
+with reset_column:
+    st.write("")
+    start_fresh = st.button("↺ Start fresh", use_container_width=True)
+
+if start_fresh:
+    st.session_state.messages = [WELCOME_MESSAGE]
+    st.session_state.active_agent_report = None
+    st.session_state.dialogue_state = None
+    persist_messages()
+    st.rerun()
 
 def record_response_feedback(rating: str, critique: str = "") -> None:
     """Persist a rating with the exact client prompt and assistant response it evaluates."""
@@ -118,12 +150,13 @@ st.markdown(f"### 🚀 Quick Actions ({st.session_state.current_role} Tier)")
 
 if st.session_state.current_role == "Client":
     col_btn1, col_btn2 = st.columns(2)
-    if col_btn1.button("📱 Ask Platform Purpose"):
+    if col_btn1.button("👋 How AuraWealth helps"):
         st.session_state.active_trigger = "purpose"
         st.rerun()
-    if col_btn2.button("📈 Request Portfolio Rebalance"):
+    if col_btn2.button("📈 Discuss a portfolio change"):
         st.session_state.active_trigger = "rebalance"
         st.rerun()
+    st.caption("Try: “I want to retire in 15 years” or “Help me understand investment risk.”")
 else:
     if st.button("👑 Initialize Pending Audit Review Queue"):
         st.session_state.active_trigger = "simulation"

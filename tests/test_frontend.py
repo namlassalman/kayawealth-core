@@ -7,3 +7,4 @@ def test_frontend_renders_without_a_backend_call(monkeypatch, tmp_path):
     app_test.run(timeout=15)
     assert not app_test.exception
     assert len(app_test.chat_input) == 1
+    assert any("financial GPS" in markdown.value for markdown in app_test.markdown)

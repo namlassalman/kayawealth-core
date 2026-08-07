@@ -40,13 +40,21 @@ class SearchService:
 
     def hybrid_search(self, query: str, category: str | None = None, year: int | None = None) -> dict[str, Any]:
         keyword_results = self.keyword_filter(query, category, year)
-        semantic_results = self.semantic_filter(query)
+        semantic_results = [
+            chunk for chunk in self.semantic_filter(query)
+            if (not category or chunk["category"] == category)
+            and (year is None or chunk["recency_year"] == year)
+        ]
         combined = {chunk["id"]: chunk for chunk in keyword_results}
         for chunk in semantic_results:
-            if (not category or chunk["category"] == category) and (year is None or chunk["recency_year"] == year):
-                combined[chunk["id"]] = chunk
+            combined[chunk["id"]] = chunk
+        ranked_results = sorted(
+            ({**chunk, "rerank_score": 1.5 if chunk["recency_year"] == 2026 else 1.0} for chunk in combined.values()),
+            key=lambda chunk: chunk["rerank_score"],
+            reverse=True,
+        )
         return {
-            "results": list(combined.values()),
+            "results": ranked_results,
             "keyword_pool_size": len(keyword_results),
             "semantic_pool_size": len(semantic_results),
         }

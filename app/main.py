@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
+from app.services.conversation import client_guidance_response
 from app.services.dialogue import DialogueState, update_dialogue_state
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.hierarchical import run_hierarchical_workflow
@@ -313,7 +314,9 @@ def add_operational_trace(state: AgentState, node: str, outcome: str, details: s
 
 
 def requires_advisor_review(user_query: str) -> bool:
-    return any(term in user_query.lower() for term in ("rebalance", "reallocate", "allocation", "liquidate", "buy", "sell"))
+    return any(term in user_query.lower() for term in (
+        "rebalance", "reallocate", "allocation", "liquidate", "buy", "sell", "simulation",
+    ))
 
 
 def review_draft(draft: str, feedback_context: str) -> tuple[float, str]:
@@ -425,6 +428,21 @@ async def run_contextual_orchestrator(payload: OrchestrationRequest):
     DIALOGUE_SESSIONS[payload.session_token] = dialogue_state
     conflict = detect_advisor_conflict(payload.user_query, critiques)
     workflow = select_workflow(payload.user_query)
+
+    if workflow == "client_guidance":
+        response = client_guidance_response(payload.user_query)
+        return {
+            "final_report": sanitize_output(response or "How can AuraWealth help with your financial goals today?"),
+            "route": workflow,
+            "conflict_flag": False,
+            "operational_trace": [{
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "node": "client_guidance",
+                "outcome": "completed",
+                "details": "Provided a plain-language onboarding or goal-discovery response.",
+            }],
+            "dialogue_state": dialogue_state.payload(),
+        }
 
     if conflict:
         return {

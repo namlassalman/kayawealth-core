@@ -3,6 +3,12 @@
 
 def select_workflow(user_query: str) -> str:
     query = user_query.lower()
+    if any(phrase in query for phrase in (
+        "what is this platform", "what is this platofrm", "what is aurawealth",
+        "what is this app", "what is this application", "what is this for",
+        "platform purpose", "application used for", "get rich", "make me rich", "be rich",
+    )):
+        return "client_guidance"
     if any(term in query for term in ("search", "what does", "policy", "compliance", "document", "guideline")):
         return "rag_search"
     if any(term in query for term in ("feedback", "correction", "clarify", "previous response")):

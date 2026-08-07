@@ -57,3 +57,22 @@ async def test_portfolio_recommendation_is_persisted_and_blocked_until_approved(
         )
         assert approved.status_code == 200
         assert approved.json()["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_client_guidance_and_retirement_simulation_governance(fake_redis):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        purpose = await client.post("/api/v1/orchestrator/route", json={
+            "user_query": "What is this platform for?", "session_token": "content-test",
+        })
+        assert purpose.status_code == 200
+        assert purpose.json()["route"] == "client_guidance"
+        assert "financial GPS" in purpose.json()["final_report"]
+
+        simulation = await client.post("/api/v1/orchestrator/route", json={
+            "user_query": "Run agent simulation for my retirement account.", "session_token": "content-test",
+        })
+        assert simulation.status_code == 200
+        assert simulation.json()["client_delivery_blocked"] is True
+        assert "PENDING_REVIEW" in simulation.json()["final_report"]

@@ -17,8 +17,9 @@ class RedisJobQueue:
     queue_key = "aurawealth:simulation:queue"
     job_prefix = "aurawealth:simulation:job:"
 
-    def __init__(self, redis_url: str) -> None:
+    def __init__(self, redis_url: str, job_ttl_seconds: int = 86_400) -> None:
         self.client = Redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=0.5)
+        self.job_ttl_seconds = job_ttl_seconds
         self.worker_task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -44,7 +45,7 @@ class RedisJobQueue:
                     "submitted_order": str(sequence),
                     "payload": json.dumps(payload),
                 })
-                await self.client.expire(job_key, 86400)
+                await self.client.expire(job_key, self.job_ttl_seconds)
                 await self.client.rpush(self.queue_key, job_id)
                 queued_jobs.append({"job_id": job_id, "status": "queued", "submitted_order": sequence})
         except (RedisError, OSError) as error:

@@ -6,9 +6,11 @@ import time  # Properly anchored at the top of the file
 import re
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from app.services.cache import SearchCache
+from app.services.config import load_settings
 from app.services.conversation import client_guidance_response
 from app.services.dialogue import DialogueState, update_dialogue_state
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
@@ -36,9 +38,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
-# --- ENVIRONMENT STATE CONFIGURATION ---
-IS_PRODUCTION = False  # Toggle to True for presentation mode or deployment configs
 
 # Force the file to save directly at the main project root folder level
 FEEDBACK_FILE = "feedback_logs.json"
@@ -75,28 +74,12 @@ INCOMING_ADVISOR_QUEUE = [
 # Thread-safe in-memory task database matrix
 tasks_db: dict[str, SimulationTask] = {}
 
-# --- ENTERPRISE ENVIRONMENT PIPELINE CONFIGURATION (Issue #27) ---
-def load_environment_profile() -> dict:
-    env_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-    env_profile = {"ENV": "PROD", "TTL": 86400.0} # Secure default fallback
-    
-    if os.path.exists(env_file_path):
-        with open(env_file_path, "r") as f:
-            for line in f:
-                if line.startswith("AURAWEALTH_ENV="):
-                    parts = line.strip().split("=")
-                    if len(parts) == 2:
-                        current_env = parts[1].strip().upper()
-                        if current_env == "DEV":
-                            return {"ENV": "DEV", "TTL": 10.0}
-                        elif current_env == "TEST":
-                            return {"ENV": "TEST", "TTL": 60.0}
-    return env_profile
-
-ENV_CONFIG = load_environment_profile()
-SEARCH_CACHE = SearchCache(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"), ttl_seconds=60)
-JOB_QUEUE = RedisJobQueue(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
-RECOMMENDATION_STORE = RecommendationStore(os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
+# --- ENVIRONMENT PIPELINE CONFIGURATION (Issue #28) ---
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SETTINGS = load_settings(PROJECT_ROOT / ".env", os.environ)
+SEARCH_CACHE = SearchCache(SETTINGS.redis_url, ttl_seconds=SETTINGS.cache_ttl_seconds)
+JOB_QUEUE = RedisJobQueue(SETTINGS.redis_url, job_ttl_seconds=SETTINGS.queue_job_ttl_seconds)
+RECOMMENDATION_STORE = RecommendationStore(SETTINGS.redis_url)
 DIALOGUE_SESSIONS: dict[str, DialogueState] = {}
 
 
@@ -232,6 +215,17 @@ def calculate_heavy_simulation(task_id: str, initial_capital: float, horizon_yea
 @app.get("/")
 async def root():
     return {"status": "healthy", "engine": "AuraWealth Core", "version": "3.11"}
+
+
+@app.get("/api/v1/system/config")
+async def get_runtime_config():
+    """Expose non-sensitive settings for local profile verification."""
+    return {
+        "environment": SETTINGS.environment,
+        "cache_ttl_seconds": SETTINGS.cache_ttl_seconds,
+        "queue_job_ttl_seconds": SETTINGS.queue_job_ttl_seconds,
+        "redis_configured": bool(SETTINGS.redis_url),
+    }
 
 @app.post("/api/v1/simulate", status_code=202)
 async def run_portfolio_simulation(payload: SimulationRequest, background_tasks: BackgroundTasks):
@@ -607,7 +601,7 @@ async def cached_search(query: str):
             "results": cached_results,
             "cache_hit": True,
             "cache_backend": backend,
-            "ttl_seconds": 60,
+            "ttl_seconds": SEARCH_CACHE.ttl_seconds,
         }
 
     fresh_data = SEARCH_SERVICE.keyword_filter(query)
@@ -616,7 +610,7 @@ async def cached_search(query: str):
         "results": fresh_data[:2],
         "cache_hit": False,
         "cache_backend": backend,
-        "ttl_seconds": 60,
+        "ttl_seconds": SEARCH_CACHE.ttl_seconds,
     }
 
 @app.post("/api/v1/queue/job", status_code=202)
@@ -683,7 +677,7 @@ async def store_advisor_feedback(payload: FeedbackPayload):
 @app.get("/api/v1/queue/next")
 async def get_next_queue_item(current_index: int = 0, fallback_query: str = "run agent simulation"):
     # Read our live dynamic .env configuration parameters
-    current_env = ENV_CONFIG["ENV"]
+    current_env = SETTINGS.environment
     
     # Track A: If running in PROD/TEST pipelines, generate a completely real data instance
     if current_env != "DEV":

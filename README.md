@@ -140,6 +140,23 @@ Run checks before each atomic feature commit:
 venv/bin/pytest -q
 ```
 
+### Environment profiles
+
+Copy `.env.example` to `.env` for local configuration. The application reads
+the file at startup and explicit shell environment variables take precedence.
+Invalid profile names, Redis URL schemes, or TTL values fail fast during startup.
+
+| Profile | Cache TTL | Queue job retention | Intended use |
+| --- | ---: | ---: | --- |
+| `DEV` | 10 seconds | 10 minutes | Local demonstrations and quick cache-expiry checks. |
+| `TEST` | 60 seconds | 1 hour | Automated/integration testing. |
+| `PROD` | 5 minutes | 24 hours | Prototype production profile only; not a production deployment guarantee. |
+
+`REDIS_URL`, `CACHE_TTL_SECONDS`, and `QUEUE_JOB_TTL_SECONDS` may override
+the profile defaults. Use **Operations Diagnostics → Environment Profile** in
+Streamlit, or `GET /api/v1/system/config`, to verify the active non-sensitive
+runtime settings. Do not commit `.env` files containing deployment secrets.
+
 ## Demonstration paths
 
 ### Client and advisor governance path

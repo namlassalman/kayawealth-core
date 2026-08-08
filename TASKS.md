@@ -30,7 +30,7 @@ The rows below reconcile local implementation, tests, and atomic commits. “Don
 | #22 | Done | `bc9e1d3` | 1,000 chunks from 10 simulated documents; #33 tracks >10-document/vector requirement. |
 | #26 | Done | `e687810` | Search, UI, models, and services modularised. |
 | #27 | Done | `9e44625` | Three content-test scenarios and fixes documented. |
-| #28 | In Progress | `8547ed8` | `.env` profile loader exists; configuration audit remains. |
+| #28 | Done | pending commit | Validated `.env` profiles now control cache TTL and queue retention; runtime endpoint/UI verify active settings. |
 | #29 | Done | `83ab2c8` | Intent routing and mandate-conflict blocking. |
 | #34 | Done | `23ef8cb` | Persisted `PENDING_REVIEW` workflow. |
 | #36 | Done | `d00bb30` | Code-accurate README completed. |
@@ -299,7 +299,7 @@ Role 3: The Compliance Auditor (Testing Knowledge Accuracy)Action: Go to the lef
 ---
 
 ## [28] Infrastructure: Environment Infrastructure Configuration (Dev/Test/Prod Pipeline)
-* **Status:** In Progress
+* **Status:** Done
 ### Actions & Description:
 Externalize Settings: Create a localized .env configuration file to store active parameters outside your application logic.
 

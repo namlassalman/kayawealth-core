@@ -103,6 +103,21 @@ def _render_advisor_tools(st, backend_url: str) -> None:
 
 
 def _render_operations_tools(st, backend_url: str) -> None:
+    st.subheader("🌍 Environment Profile")
+    if st.button("Inspect active configuration"):
+        try:
+            response = httpx.get(f"{backend_url}/api/v1/system/config", timeout=10.0)
+            response.raise_for_status()
+            config = response.json()
+            st.success(f"Active profile: {config['environment']}")
+            st.caption(
+                f"Cache TTL: {config['cache_ttl_seconds']}s | "
+                f"Queue retention: {config['queue_job_ttl_seconds']}s"
+            )
+        except Exception as error:
+            st.error(f"Configuration check failed: {error}")
+
+    st.markdown("---")
     st.subheader("⚡ Redis Cache Validation")
     cache_query = st.text_input("Search query to cache", key="cache_query")
     if st.button("Run cached search"):

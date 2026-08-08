@@ -79,3 +79,14 @@ async def test_client_guidance_and_retirement_simulation_governance(fake_redis):
         assert simulation.status_code == 200
         assert simulation.json()["client_delivery_blocked"] is True
         assert "PENDING_REVIEW" in simulation.json()["final_report"]
+
+
+@pytest.mark.asyncio
+async def test_market_ticks_are_streamed_as_server_sent_events(fake_redis):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/market/ticks", params={"symbol": "AURA", "tick_count": 2, "interval_ms": 0})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.text.count("event: market_tick") == 2
+    assert '"symbol": "AURA"' in response.text

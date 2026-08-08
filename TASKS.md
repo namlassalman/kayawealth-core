@@ -340,7 +340,7 @@ Preserve timeout and error handling behaviour, then verify in the UI that normal
 ---
 
 ## [32] Advanced: Async Mock Market-Tick Streaming Generator
-* **Status:** Todo
+* **Status:** Done
 * **Effort:** 2–3 hrs
 * **Complexity:** Medium
 ### Actions & Description:

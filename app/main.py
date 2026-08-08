@@ -7,7 +7,8 @@ import re
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.services.cache import SearchCache
 from app.services.config import load_settings
@@ -15,6 +16,7 @@ from app.services.conversation import client_guidance_response
 from app.services.dialogue import DialogueState, update_dialogue_state
 from app.services.evaluation import GOLDEN_TEST_SET, evaluate_response
 from app.services.hierarchical import run_hierarchical_workflow
+from app.services.market_data import generate_market_ticks
 from app.services.orchestration import detect_advisor_conflict, select_workflow
 from app.services.redis_queue import QueueUnavailable, RedisJobQueue
 from app.services.recommendations import RecommendationStore, RecommendationUnavailable
@@ -226,6 +228,20 @@ async def get_runtime_config():
         "queue_job_ttl_seconds": SETTINGS.queue_job_ttl_seconds,
         "redis_configured": bool(SETTINGS.redis_url),
     }
+
+
+@app.get("/api/v1/market/ticks")
+async def stream_market_ticks(
+    symbol: str = Query(default="AURA", min_length=1, max_length=10),
+    tick_count: int = Query(default=5, ge=1, le=10),
+    interval_ms: int = Query(default=500, ge=0, le=5_000),
+):
+    """Stream deterministic simulated ticks as server-sent events."""
+    async def event_stream():
+        async for tick in generate_market_ticks(symbol, tick_count, interval_ms / 1_000):
+            yield f"event: market_tick\ndata: {json.dumps(tick)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @app.post("/api/v1/simulate", status_code=202)
 async def run_portfolio_simulation(payload: SimulationRequest, background_tasks: BackgroundTasks):

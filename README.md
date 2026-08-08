@@ -171,6 +171,8 @@ runtime settings. Do not commit `.env` files containing deployment secrets.
 - In **Client-facing tools**, search `tax` or `compliance`, filter to 2026, and inspect the visible `1.5` recency score.
 - In **Operations Diagnostics**, run the cache check twice to observe a miss followed by a hit when Redis is available.
 - Queue three demo jobs to observe ordered local FIFO processing.
+- In **Operations Diagnostics**, stream five deterministic market ticks to see
+  the async server-sent-event demonstration; it uses no external price feed.
 - In **Wealth Advisor tools**, run the alternative manager-led hierarchy and the deterministic golden-set evaluator.
 
 ## Panel defence notes

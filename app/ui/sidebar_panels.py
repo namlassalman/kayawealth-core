@@ -5,14 +5,16 @@ import asyncio
 import altair as alt
 import httpx
 
+from app.ui.market_panel import render_market_tick_panel
+
 
 def render_sidebar_panels(st, backend_url: str) -> None:
-    with st.sidebar.expander("⚙️ Operations Diagnostics", expanded=False):
-        _render_operations_tools(st, backend_url)
     with st.sidebar.expander("👤 Client-facing tools", expanded=False):
         _render_client_tools(st, backend_url)
     with st.sidebar.expander("🧑‍💼 Wealth Advisor tools", expanded=False):
         _render_advisor_tools(st, backend_url)
+    with st.sidebar.expander("⚙️ Operations Diagnostics", expanded=False):
+        _render_operations_tools(st, backend_url)
 
 
 def _render_client_tools(st, backend_url: str) -> None:
@@ -116,6 +118,9 @@ def _render_operations_tools(st, backend_url: str) -> None:
             )
         except Exception as error:
             st.error(f"Configuration check failed: {error}")
+
+    st.markdown("---")
+    render_market_tick_panel(st, backend_url)
 
     st.markdown("---")
     st.subheader("⚡ Redis Cache Validation")

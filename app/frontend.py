@@ -39,6 +39,28 @@ st.sidebar.radio(
 )
 
 st.sidebar.markdown(f"Active Session Context: **`{st.session_state.current_role} Mode`**")
+search_workspace_expanded = st.sidebar.checkbox(
+    "Expand search workspace (75 / 25)",
+    key="search_workspace_expanded",
+    help="Give Client-facing tools 75% of the screen and keep the chat at 25%.",
+)
+
+if search_workspace_expanded:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] {
+            min-width: 75vw !important;
+            max-width: 75vw !important;
+            width: 75vw !important;
+        }
+        [data-testid="stSidebar"] > div:first-child {
+            width: 75vw !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # --- INITIALIZE STATE-PERSISTENT SESSION MEMORY (Issue 10) ---
 if "session_token" not in st.session_state:
@@ -255,4 +277,4 @@ if len(st.session_state.messages) > 1 and st.session_state.messages[-1]["role"] 
 
 render_advisor_console(st, BACKEND_URL, append_message)
 
-render_sidebar_panels(st, BACKEND_URL)
+render_sidebar_panels(st, BACKEND_URL, client_tools_expanded=search_workspace_expanded)

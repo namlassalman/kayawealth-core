@@ -11,7 +11,7 @@ It is an assessment prototype, not an investment-advice service or a production 
 | Client experience | Streamlit chat with local JSON history, financial-goal onboarding, and a client/advisor demo role switch. |
 | Backend | FastAPI routes, `async` route handlers, a lifespan-managed Redis queue worker, and a `BackgroundTasks` simulation endpoint. |
 | Conversational workflow | Deterministic Intake → Risk → Report stages, a deterministic critic score/fallback, topic-state tracking, and an alternative manager-led hierarchical demo workflow. |
-| Retrieval | 1,000 locally generated chunks from 10 simulated documents; keyword matching, lexical title matching labelled as a semantic proxy, hybrid merge/deduplication, metadata filters, and a 2026 recency score of 1.5. |
+| Retrieval | 1,200 locally generated chunks from 12 simulated documents; local CPU ONNX embeddings, cosine-similarity retrieval, keyword search, hybrid merge/deduplication, metadata filters, and a 2026 recency score of 1.5. |
 | Governance | Regex ingress prompt-injection blocking, regex egress PII redaction, advisor feedback logging, deterministic golden-set evaluation, and persisted `PENDING_REVIEW` recommendation state. |
 | Scaling demonstrations | Redis TTL cache with in-memory fallback and a Redis FIFO simulation queue with a single in-process consumer. |
 | Verification | `pytest` suite covering routes, services, state, governance controls, Redis fakes, and a Streamlit smoke test. |
@@ -19,7 +19,7 @@ It is an assessment prototype, not an investment-advice service or a production 
 ## Important boundaries
 
 - There is **no LangGraph**, Qdrant, ChromaDB, external vector database, Gemini SDK, OpenAI SDK, or live LLM call in this repository.
-- “Semantic search” currently means deterministic lexical title matching, not embeddings or vector similarity. The cluster map uses simulated thematic coordinates, not learned embeddings.
+- Semantic retrieval uses the local CPU ONNX `BAAI/bge-small-en-v1.5` embedding model and cosine similarity. The cluster map remains a simulated thematic-coordinate visualisation, not a projection of learned embeddings.
 - The main Streamlit chat request currently uses synchronous `httpx.post`; task #31 tracks the async transport remediation.
 - The Flash/Pro names and costs returned by `/api/v1/route` and `/api/v1/route/llm` are mock FinOps labels. They do not invoke models and are not yet on the main chat path.
 - The client/advisor switch is a presentation demo, not authentication, authorisation, or tenant isolation.
@@ -38,7 +38,7 @@ flowchart TD
     Dialogue --> Intent{Deterministic intent router}
 
     Intent -->|Onboarding / goal discovery| Guidance[Client guidance templates]
-    Intent -->|Knowledge request| Search[Local SearchService\nkeyword + lexical title proxy]
+    Intent -->|Knowledge request| Search[Local SearchService\nkeyword + ONNX vector similarity]
     Intent -->|Advisory request| Sequential[Intake → Risk → Report\ndeterministic workflow]
     Intent -->|Alternative demo endpoint| Manager[Manager-led hierarchy\nintake / risk / portfolio]
 
@@ -69,15 +69,15 @@ flowchart TD
 
 ## Retrieval and reranking
 
-`app/seed_data.py` generates exactly 1,000 chunks across 10 simulated documents and attaches category, year, and cluster metadata.
+`app/seed_data.py` generates exactly 1,200 chunks across 12 simulated documents and attaches category, year, and cluster metadata.
 
 - **Keyword retrieval:** token presence in chunk text or title.
-- **Lexical title proxy:** token presence in document titles; exposed as the current semantic-search proxy.
+- **Semantic retrieval:** local CPU ONNX embeddings (`BAAI/bge-small-en-v1.5`) and cosine similarity. The first build downloads the public model; all corpus/query embedding and search then run locally.
 - **Hybrid retrieval:** merges both candidate pools by chunk ID, then removes duplicates.
 - **Metadata filters:** category and recency year limit the candidate pool.
 - **Reranking:** chunks dated 2026 receive `rerank_score: 1.5`; other chunks receive `1.0`.
 
-This is deliberately local and deterministic for the assessment. Task #33 is the decision point for either a genuine embedding/vector implementation or continued lexical retrieval with these explicit limits.
+The vector index is persisted as `app/kb_vectors.npz` and rebuilt when the corpus fingerprint changes. It is deliberately ignored by Git because it is reproducible with the command below.
 
 ## Governance controls
 
@@ -119,6 +119,9 @@ cd kayawealth-core
 python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+# One-time local model download and vector-index build (internet required once)
+venv/bin/python -m app.build_vector_index
 
 # Terminal 1
 venv/bin/uvicorn app.main:app --reload
@@ -169,6 +172,7 @@ runtime settings. Do not commit `.env` files containing deployment secrets.
 ### Knowledge and operations paths
 
 - In **Client-facing tools**, search `tax` or `compliance`, filter to 2026, and inspect the visible `1.5` recency score.
+- Try a semantic synonym such as `pension income`; retirement-planning chunks should appear with a local embedding similarity score even when the exact word `retirement` is absent.
 - In **Operations Diagnostics**, run the cache check twice to observe a miss followed by a hit when Redis is available.
 - Queue three demo jobs to observe ordered local FIFO processing.
 - In **Operations Diagnostics**, stream five deterministic market ticks to see
@@ -189,12 +193,36 @@ Redis is used locally to demonstrate TTL caching, FIFO job processing, and durab
 
 Stateless API replicas behind a load balancer; authenticated, tenant-scoped persistence; managed queue/cache services; a genuine retrieval index with governed document ingestion; model-provider abstraction; tracing and metrics; and formal data-governance controls. These are target architecture considerations, not implemented capabilities.
 
+## Conclusions and next steps
+
+The current feedback loop is deliberately **not** model training. Advisor
+corrections in `feedback_logs.json` are local prototype records that support
+deterministic fallback behaviour; they must not be used to fine-tune an
+embedding or language model as-is, because they may contain client context or
+other sensitive information.
+
+A production fine-tuning programme would first de-identify and minimise
+approved feedback, obtain the required consent and retention approvals, and
+keep the curated training set separate from operational logs. It would then
+compare a frozen baseline with a candidate model on held-out, representative
+evaluation cases for groundedness, suitability, safety, and regression risk,
+with human compliance approval before release. The original records would
+remain access-controlled and auditable; the deployed model would not become a
+store of client data.
+
+For this prototype, the nearer-term and lower-risk step is task #37: measure
+whether de-identified advisor feedback improves retrieval or response
+selection against a fixed benchmark. Fine-tuning should only be considered
+after that evidence exists and the data-governance controls above are in place.
+
 ## Repository map
 
 ```text
 app/main.py                    FastAPI routes and orchestration composition
 app/frontend.py                Streamlit client/advisor experience
-app/services/search.py         Local lexical retrieval, hybrid merge, reranking, clusters
+app/services/search.py         Keyword retrieval, hybrid merge, reranking, clusters
+app/services/vector_index.py   Local ONNX embedding index and cosine-similarity retrieval
+app/build_vector_index.py      One-time model/index prewarm command
 app/services/dialogue.py       Dialogue-focus state transitions
 app/services/orchestration.py  Intent routing and mandate-conflict detection
 app/services/hierarchical.py   Alternative manager-led workflow demo

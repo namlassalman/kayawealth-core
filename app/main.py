@@ -285,6 +285,7 @@ async def hybrid_search(query: str, category: str = None, year: int = None):
     return {
         "results": search["results"][:5],
         "total_results": len(search["results"]),
+        "semantic_backend": "local_onnx_embedding",
         "source_breakdown": {
             "keyword_pool_size": search["keyword_pool_size"],
             "semantic_pool_size": search["semantic_pool_size"],

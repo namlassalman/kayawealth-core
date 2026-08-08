@@ -351,7 +351,7 @@ Expose the generator through an async FastAPI streaming endpoint and add a front
 ---
 
 ## [33] RAG: Semantic Retrieval Architecture Decision & Remediation
-* **Status:** Todo
+* **Status:** Done
 * **Effort:** 2–5 hrs
 * **Complexity:** High
 ### Actions & Description:
@@ -448,5 +448,18 @@ Define measurable non-functional requirements for the prototype and its producti
 Document a clear distinction between the local demonstration baseline and the target production architecture. For each requirement, record a measurable acceptance criterion, an owner/component, the current implementation status, and a verification method.
 
 Add lightweight reproducible checks where feasible: API health and dependency-failure handling, cache/queue fallback behaviour, response-time sampling for core routes, and the existing automated test suite. Record known gaps and their production remediation path without claiming guarantees the local prototype cannot prove.
+
+---
+
+## [43] RAG: Knowledge Corpus Quality and Coverage Expansion
+* **Status:** Todo
+* **Effort:** 5–7 hrs
+* **Complexity:** High
+### Actions & Description:
+Expand the simulated wealth-management corpus from approximately 300 repeated semantic passages to 600–800 genuinely distinct, retrieval-worthy passages while retaining the 1,200-chunk metadata contract.
+
+Add client scenarios, discovery questions, decision criteria, governance considerations, and worked illustrative examples across all 12 knowledge domains. Include richer metadata such as document type, intended audience, life stage, risk context, jurisdiction scope, effective date, and approval status where appropriate. All material must remain explicitly simulated, non-advisory, and free of personal client data.
+
+Add representative retrieval regression tests for each domain, including synonym and metadata-filter cases. Rebuild the local embedding index, demonstrate the improved results in Streamlit, and document corpus coverage, known limitations, and the reproducible index-build process.
 
 ---

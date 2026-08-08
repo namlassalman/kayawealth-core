@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.ui.sidebar_panels import render_sidebar_panels
 from app.ui.advisor_panel import render_advisor_console
+from app.services.http_client import post_json, run_async
 
 BACKEND_URL = "http://127.0.0.1:8000"
 SESSION_FILE = os.getenv("AURAWEALTH_SESSION_FILE", "history_session.json")
@@ -201,16 +202,12 @@ if current_query:
     st.chat_message("user").write(current_query)
     append_message("user", current_query)
     
-    complex_triggers = ["simulate", "agent", "portfolio", "rebalance", "optimization"]
-    is_complex = any(word in current_query.lower() for word in complex_triggers)
-    
     with st.spinner("AuraWealth processing query..."):
         try:
-            res = httpx.post(
+            res = run_async(post_json(
                 f"{BACKEND_URL}/api/v1/orchestrator/route",
-                json={"user_query": current_query, "session_token": st.session_state.session_token},
-                timeout=10.0
-            )
+                {"user_query": current_query, "session_token": st.session_state.session_token},
+            ))
             if res.status_code == 400:
                 reply_text = f"🛡️ {res.json().get('detail', 'Security policy blocked this request.')}"
                 report_payload = {"final_report": reply_text, "guardrail_blocked": True}

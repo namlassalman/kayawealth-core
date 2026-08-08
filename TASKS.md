@@ -329,7 +329,7 @@ Conflict Resolution Engine: Build a scoring loop that checks advisor corrections
 ---
 
 ## [31] Core: Async Frontend Chat Transport Remediation
-* **Status:** Todo
+* **Status:** Done
 * **Effort:** 1.5–2.5 hrs
 * **Complexity:** Medium
 ### Actions & Description:
